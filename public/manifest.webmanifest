@@ -1,0 +1,15 @@
+{
+  "name": "Rhythm",
+  "short_name": "Rhythm",
+  "description": "음악을 올리면 맵을 자동 생성하는 모바일 리듬 게임",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#05050f",
+  "theme_color": "#05050f",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
