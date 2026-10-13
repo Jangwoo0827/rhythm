@@ -5,8 +5,6 @@ import { LANES, type GameMap, type Judgement, type MapNote, type Result } from '
 
 /** 곡 시작 전 카운트다운(초) */
 export const LEAD_IN = 2.4;
-/** 노트가 화면 위에서 판정선까지 내려오는 시간(초) */
-export const APPROACH = 1.4;
 
 export type NoteStatus = 'pending' | 'holding' | 'hit' | 'missed' | 'broken';
 
@@ -36,6 +34,8 @@ export class Game {
   state: GameState = 'idle';
   /** 판정/표시 보정(초). 양수면 노트가 더 늦게 오는 것으로 처리 (STEP 4 오프셋 설정용) */
   offset = 0;
+  /** 노트가 화면 위에서 판정선까지 내려오는 시간(초). 설정의 노트 속도 */
+  approach = 1.4;
   events: GameEvents = {};
 
   private readonly laneNotes: LiveNote[][] = Array.from({ length: LANES }, () => []);
@@ -117,6 +117,7 @@ export class Game {
     } else {
       n.status = 'hit';
     }
+    this.score.recordTiming(diff);
     this.engine.playHit(j);
     this.events.onJudge?.(lane, j, n, diff);
   }

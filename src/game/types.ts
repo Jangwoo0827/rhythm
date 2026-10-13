@@ -29,4 +29,7 @@ export interface Result {
   maxCombo: number;
   total: number;
   counts: Record<Judgement, number>;
+  /** 평균 타이밍(ms, +면 늦게 침)과 그 계산에 쓰인 타격 수 */
+  avgTimingMs: number;
+  timedHits: number;
 }

@@ -6,7 +6,12 @@ export function blockGestures(): void {
     'gesturestart', 'gesturechange', 'gestureend', // iOS Safari 핀치 줌
   ];
   for (const type of events) document.addEventListener(type, stop, { passive: false });
-  document.addEventListener('touchmove', stop, { passive: false });
+  // 스크롤 영역(.scroll, 곡 목록/설정)만 터치 스크롤을 허용한다
+  document.addEventListener(
+    'touchmove',
+    (e) => { if (!(e.target instanceof Element) || !e.target.closest('.scroll')) e.preventDefault(); },
+    { passive: false },
+  );
   document.addEventListener(
     'touchstart',
     (e) => { if (e.touches.length > 1) e.preventDefault(); },

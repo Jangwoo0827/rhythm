@@ -1,5 +1,6 @@
 import { Clock } from './clock';
 import type { Judgement } from '../game/types';
+import { createHitSound } from './testSound';
 
 type AudioContextCtor = typeof AudioContext;
 
@@ -13,6 +14,7 @@ export class AudioEngine {
   private freq = new Uint8Array(0);
   private source: AudioBufferSourceNode | null = null;
   private hitBuffer: AudioBuffer | null = null;
+  private musicVolume = 1;
 
   get ready(): boolean {
     return !!this.ctx;
@@ -34,6 +36,7 @@ export class AudioEngine {
       this.music = this.ctx.createGain();
       this.sfx = this.ctx.createGain();
       this.sfx.gain.value = 0.7;
+      this.hitBuffer = createHitSound(this.ctx);
       this.analyser = this.ctx.createAnalyser();
       this.analyser.fftSize = 256;
       this.analyser.smoothingTimeConstant = 0.6;
@@ -53,8 +56,21 @@ export class AudioEngine {
     this.clock.snap();
   }
 
-  setHitBuffer(buffer: AudioBuffer): void {
-    this.hitBuffer = buffer;
+  /** 음악/효과음 볼륨(0..1). 음악 볼륨은 다음 곡 재생부터 적용된다. */
+  setVolumes(music: number, sfx: number): void {
+    this.musicVolume = music;
+    if (this.ready) this.sfx.gain.value = sfx;
+  }
+
+  /** `when`(AudioContext 시각)에 메트로놈 틱을 예약한다 (오프셋 보정용). 취소하려면 반환된 노드를 stop(). */
+  scheduleTick(when: number, rate = 1): AudioBufferSourceNode | null {
+    if (!this.hitBuffer) return null;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.hitBuffer;
+    src.playbackRate.value = rate;
+    src.connect(this.sfx);
+    src.start(when);
+    return src;
   }
 
   /** `when`(AudioContext 시각)에 정확히 맞춰 곡을 시작한다. */
@@ -65,7 +81,7 @@ export class AudioEngine {
     src.connect(this.music);
     src.start(when);
     this.music.gain.cancelScheduledValues(0);
-    this.music.gain.value = 1;
+    this.music.gain.value = this.musicVolume;
     this.source = src;
   }
 

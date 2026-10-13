@@ -9,6 +9,8 @@ export class ScoreKeeper {
   combo = 0;
   maxCombo = 0;
   private weightSum = 0;
+  private timingSum = 0;
+  private timedHits = 0;
 
   constructor(readonly total: number) {}
 
@@ -17,6 +19,12 @@ export class ScoreKeeper {
     this.weightSum += ACCURACY_WEIGHT[j];
     if (j === 'miss') this.combo = 0;
     else this.maxCombo = Math.max(this.maxCombo, ++this.combo);
+  }
+
+  /** 타격 타이밍 오차(초, +면 늦음) 기록 */
+  recordTiming(diff: number): void {
+    this.timingSum += diff;
+    this.timedHits++;
   }
 
   /** 이미 센 판정을 Miss 로 바꾼다 (롱노트를 중간에 놓쳤을 때). */
@@ -47,6 +55,8 @@ export class ScoreKeeper {
       maxCombo: this.maxCombo,
       total: this.total,
       counts: { ...this.counts },
+      avgTimingMs: this.timedHits ? Math.round((this.timingSum / this.timedHits) * 1000) : 0,
+      timedHits: this.timedHits,
     };
   }
 }

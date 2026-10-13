@@ -1,4 +1,4 @@
-import { APPROACH, LEAD_IN, type Game, type LiveNote } from './game';
+import { LEAD_IN, type Game, type LiveNote } from './game';
 import { JUDGE_STYLE, LANE_COLORS, type Effects } from './effects';
 import { computeLayout, laneX, readSafeBottom, scaleAt, yAt, type Layout } from './layout';
 import { LANES } from './types';
@@ -138,8 +138,8 @@ export class Renderer {
       const off = game.map.offset ?? 0;
       const first = Math.ceil((t - off) / beat);
       c.lineWidth = 1;
-      for (let k = first; off + k * beat - t < APPROACH; k++) {
-        const p = 1 - (off + k * beat - t) / APPROACH;
+      for (let k = first; off + k * beat - t < game.approach; k++) {
+        const p = 1 - (off + k * beat - t) / game.approach;
         if (p < 0 || p > 1) continue;
         const s = scaleAt(L, p);
         const y = yAt(L, s);
@@ -192,20 +192,20 @@ export class Renderer {
     const notes = game.notes;
     while (this.drawStart < notes.length && notes[this.drawStart].t + notes[this.drawStart].dur < t - 0.4) this.drawStart++;
     let end = this.drawStart;
-    while (end < notes.length && notes[end].t - t < APPROACH) end++;
+    while (end < notes.length && notes[end].t - t < game.approach) end++;
     // 판정선을 지나간 노트가 하단 패드 위로 커지며 번지지 않도록 판정선 바로 아래에서 자른다
     c.save();
     c.beginPath();
     c.rect(0, 0, L.w, L.jy + L.noteH * 0.6);
     c.clip();
     // 먼 노트부터 그려서 가까운 노트가 위에 오도록
-    for (let i = end - 1; i >= this.drawStart; i--) this.drawNote(c, L, notes[i], t);
+    for (let i = end - 1; i >= this.drawStart; i--) this.drawNote(c, L, notes[i], t, game.approach);
     c.restore();
   }
 
-  private drawNote(c: CanvasRenderingContext2D, L: Layout, n: LiveNote, t: number): void {
+  private drawNote(c: CanvasRenderingContext2D, L: Layout, n: LiveNote, t: number, approach: number): void {
     if (n.status === 'hit') return;
-    const pHead = 1 - (n.t - t) / APPROACH;
+    const pHead = 1 - (n.t - t) / approach;
     if (pHead < 0) return;
     const dead = n.status === 'missed' || n.status === 'broken';
     const color = dead ? '#6a6a80' : LANE_COLORS[n.lane];
@@ -213,7 +213,7 @@ export class Renderer {
 
     if (n.dur > 0) {
       const holding = n.status === 'holding';
-      const pTail = Math.max(0, 1 - (n.t + n.dur - t) / APPROACH);
+      const pTail = Math.max(0, 1 - (n.t + n.dur - t) / approach);
       const pBottom = holding ? 1 : pHead;
       const sT = scaleAt(L, pTail);
       const sB = scaleAt(L, pBottom);
