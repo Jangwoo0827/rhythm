@@ -339,3 +339,24 @@ button.neon.small { font-size: 13px; padding: 10px 16px; letter-spacing: 0.02em;
   .setting { gap: 5px; }
   .settings { gap: 14px; }
 }
+
+/* PC 키 설정 */
+.mini-row.keys { gap: 8px; }
+.key-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  min-width: 70px; padding: 8px 6px; border-radius: 12px;
+  border: 1.5px solid rgba(255, 255, 255, 0.3); background: rgba(255, 255, 255, 0.07); color: #fff; font: inherit;
+}
+.key-btn .key-lane { font-size: 11px; color: rgba(255, 255, 255, 0.55); }
+.key-btn .key-name { font-size: 18px; font-weight: 900; min-height: 22px; }
+.key-btn.listening { border-color: var(--cyan); background: rgba(79, 232, 255, 0.18); box-shadow: 0 0 12px rgba(79, 232, 255, 0.5); }
+
+/* 공유 맵 둘러보기 */
+.text-input.search { width: min(380px, 92vw); padding: 10px 14px; font-size: 15px; }
+.song-row { gap: 12px; padding: 10px 14px 10px 10px; }
+.song-thumb {
+  flex: 0 0 56px; width: 56px; height: 56px; border-radius: 10px; display: flex; align-items: flex-end; justify-content: center; gap: 4px;
+  padding: 8px 8px; overflow: hidden; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+}
+.thumb-bar { flex: 1; background: rgba(255, 255, 255, 0.75); border-radius: 2px; }
+.song-row .row-main { gap: 3px; }

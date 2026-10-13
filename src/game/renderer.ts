@@ -2,6 +2,8 @@ import { LEAD_IN, type Game, type LiveNote } from './game';
 import { JUDGE_STYLE, LANE_COLORS, type Effects } from './effects';
 import { computeLayout, laneX, readSafeBottom, scaleAt, yAt, type Layout } from './layout';
 import { LANES } from './types';
+import { keyLabel } from './keys';
+import { getSettings } from './settings';
 
 const FONT = '"Segoe UI", "Apple SD Gothic Neo", system-ui, -apple-system, sans-serif';
 
@@ -32,6 +34,8 @@ export class Renderer {
   private shownScore = 0;
   private drawStart = 0;
   private lastTime = performance.now();
+  /** 마우스/키보드 환경(PC)에서는 패드에 키 글자를 표시 */
+  private readonly showKeys = typeof matchMedia === 'function' && matchMedia('(pointer: fine)').matches;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d', { alpha: false })!;
@@ -285,6 +289,13 @@ export class Renderer {
       c.strokeStyle = rgba(LANE_COLORS[i], 0.45 + 0.5 * g);
       c.lineWidth = 2;
       c.stroke();
+      if (this.showKeys) {
+        c.fillStyle = `rgba(255,255,255,${0.4 + 0.5 * g})`;
+        c.font = `800 ${Math.round(L.sw * 0.07)}px ${FONT}`;
+        c.textAlign = 'center';
+        c.textBaseline = 'alphabetic';
+        c.fillText(keyLabel(getSettings().keys[i]), x + w / 2, y + h - 16);
+      }
     }
   }
 

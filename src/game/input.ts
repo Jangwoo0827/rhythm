@@ -1,12 +1,12 @@
 import type { Game } from './game';
 import { LANES } from './types';
 import { isField } from '../ui/gestures';
+import { getSettings } from './settings';
 import { laneFromX, type Layout } from './layout';
 
-const KEYS: Record<string, number> = { KeyD: 0, KeyF: 1, KeyJ: 2, KeyK: 3 };
 
 /**
- * pointerdown/up 기반 멀티터치 입력 + (PC 테스트용) 키보드 D F J K.
+ * pointerdown/up 기반 멀티터치 입력 + 키보드(설정에서 바꿀 수 있는 PC 키 바인딩, 기본 D F J K).
  * 각 pointerId 는 눌린 순간의 레인에 묶이므로 손가락을 옆으로 밀어도 롱노트가 유지된다.
  */
 export class Input {
@@ -58,16 +58,19 @@ export class Input {
   };
 
   private onKeyDown = (e: KeyboardEvent): void => {
-    const lane = KEYS[e.code];
-    if (lane === undefined || e.repeat || isField(e.target)) return;
+    if (e.repeat || isField(e.target)) return;
+    const lane = getSettings().keys.indexOf(e.code);
+    if (lane < 0 || this.getGame()?.state !== 'running') return; // 게임 중이 아니면 브라우저 기본 동작을 건드리지 않는다
     e.preventDefault();
     this.counts[lane]++;
     this.press(lane, e.timeStamp);
   };
 
   private onKeyUp = (e: KeyboardEvent): void => {
-    const lane = KEYS[e.code];
-    if (lane === undefined || isField(e.target)) return;
+    if (isField(e.target)) return;
+    const lane = getSettings().keys.indexOf(e.code);
+    // 누르고 있던 키만 처리 (게임이 끝났거나 바인딩이 바뀌어도 눌린 롱노트는 정상적으로 뗀다)
+    if (lane < 0 || this.counts[lane] <= 0) return;
     e.preventDefault();
     if (--this.counts[lane] <= 0) {
       this.counts[lane] = 0;

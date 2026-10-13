@@ -1,4 +1,5 @@
 import { readJSON, writeJSON } from '../storage';
+import { DEFAULT_KEYS, sanitizeKeys } from './keys';
 import type { Difficulty } from './types';
 
 export interface Settings {
@@ -9,6 +10,10 @@ export interface Settings {
   musicVolume: number; // 0..1
   sfxVolume: number; // 0..1
   difficulty: Difficulty;
+  /** PC 키 바인딩 (레인 1~4, KeyboardEvent.code). 기기마다 달라서 클라우드 동기화 대상이 아니다 */
+  keys: string[];
+  /** 내가 분석한 곡을 공개 목록(공유 맵 둘러보기)에 올릴지 */
+  publicShare: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -17,6 +22,8 @@ export const DEFAULT_SETTINGS: Settings = {
   musicVolume: 1,
   sfxVolume: 0.7,
   difficulty: 'normal',
+  keys: [...DEFAULT_KEYS],
+  publicShare: true,
 };
 
 export const OFFSET_LIMIT = 300;
@@ -44,6 +51,8 @@ export function sanitizeSettings(raw: unknown): Settings {
     musicVolume: clamp(num(r.musicVolume, d.musicVolume), 0, 1),
     sfxVolume: clamp(num(r.sfxVolume, d.sfxVolume), 0, 1),
     difficulty: diff,
+    keys: sanitizeKeys(r.keys),
+    publicShare: typeof r.publicShare === 'boolean' ? r.publicShare : d.publicShare,
   };
 }
 

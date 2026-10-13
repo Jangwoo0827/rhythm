@@ -26,6 +26,21 @@ async function seedMap() {
   });
 }
 
+const songData = (over: Record<string, unknown> = {}) => ({
+  songHash: HASH, title: 'My Song', mapper: 'Alice', bpm: 120, duration: 33.5,
+  counts: { easy: 3, normal: 3, hard: 3 }, uid: 'alice', createdAt: serverTimestamp(), ...over,
+});
+
+/** easy/normal/hard 세 맵을 규칙 없이 미리 심는다 (각 노트 3개) */
+async function seedAllMaps() {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    const db = ctx.firestore() as unknown as Firestore;
+    for (const d of ['easy', 'normal', 'hard']) {
+      await setDoc(doc(db, 'maps', `${HASH}_${d}`), mapData({ difficulty: d, createdAt: Timestamp.now() }));
+    }
+  });
+}
+
 beforeAll(async () => {
   env = await initializeTestEnvironment({
     projectId: 'demo-rhythm',
@@ -161,5 +176,51 @@ describe('scores/{scoreId}', () => {
     await assertFails(updateDoc(doc(db, 'scores', 's1'), { score: 1000000 }));
     await assertFails(setDoc(doc(db, 'scores', 's1'), scoreData({ score: 1000000 })));
     await assertFails(deleteDoc(doc(db, 'scores', 's1')));
+  });
+});
+
+describe('songs/{songHash} (공유 맵 목록)', () => {
+  beforeEach(seedAllMaps);
+
+  it('로그인한 사용자는 읽을 수 있고, 로그인 안 하면 못 읽는다', async () => {
+    await assertSucceeds(setDoc(doc(dbOf('alice'), 'songs', HASH), songData()));
+    await assertSucceeds(getDoc(doc(dbOf('bob'), 'songs', HASH)));
+    await assertFails(getDoc(doc(dbOf(null), 'songs', HASH)));
+  });
+  it('맵이 먼저 올라가 있고 노트 수가 일치할 때만 만들 수 있다', async () => {
+    await assertSucceeds(setDoc(doc(dbOf('alice'), 'songs', HASH), songData()));
+  });
+  it('난이도별 노트 수가 실제 맵과 다르면 거절', async () => {
+    const db = dbOf('alice');
+    await assertFails(setDoc(doc(db, 'songs', HASH), songData({ counts: { easy: 3, normal: 99, hard: 3 } })));
+    await assertFails(setDoc(doc(db, 'songs', HASH), songData({ counts: { easy: 3, normal: 3 } })));
+  });
+  it('맵이 없는 곡에는 만들 수 없다', async () => {
+    const other = 'fedcba9876543210';
+    await assertFails(setDoc(doc(dbOf('alice'), 'songs', other), songData({ songHash: other })));
+  });
+  it('문서 ID 와 songHash 가 다르거나, 남의 uid 로는 만들 수 없다', async () => {
+    const db = dbOf('alice');
+    await assertFails(setDoc(doc(db, 'songs', 'fedcba9876543210'), songData()));
+    await assertFails(setDoc(doc(db, 'songs', HASH), songData({ uid: 'bob' })));
+  });
+  it('형식 검증: 제목/닉네임/길이/BPM/추가 필드/서버 시각', async () => {
+    const db = dbOf('alice');
+    await assertFails(setDoc(doc(db, 'songs', HASH), songData({ title: '' })));
+    await assertFails(setDoc(doc(db, 'songs', HASH), songData({ title: 'x'.repeat(101) })));
+    await assertFails(setDoc(doc(db, 'songs', HASH), songData({ mapper: 'x'.repeat(17) })));
+    await assertFails(setDoc(doc(db, 'songs', HASH), songData({ duration: 0 })));
+    await assertFails(setDoc(doc(db, 'songs', HASH), songData({ duration: 99999 })));
+    await assertFails(setDoc(doc(db, 'songs', HASH), songData({ bpm: 999 })));
+    await assertFails(setDoc(doc(db, 'songs', HASH), songData({ plays: 1 })));
+    await assertFails(setDoc(doc(db, 'songs', HASH), songData({ createdAt: new Date(0) })));
+  });
+  it('생성 후에는 수정·삭제할 수 없다 (먼저 올린 것이 기준)', async () => {
+    const db = dbOf('alice');
+    await assertSucceeds(setDoc(doc(db, 'songs', HASH), songData()));
+    await assertFails(setDoc(doc(db, 'songs', HASH), songData({ title: 'changed' })));
+    await assertFails(updateDoc(doc(db, 'songs', HASH), { title: 'changed' }));
+    await assertFails(deleteDoc(doc(db, 'songs', HASH)));
+    await assertFails(setDoc(doc(dbOf('bob'), 'songs', HASH), songData({ uid: 'bob' })));
   });
 });

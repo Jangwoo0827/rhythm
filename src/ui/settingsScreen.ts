@@ -2,6 +2,7 @@ import {
   OFFSET_LIMIT, SPEED_MAX, SPEED_MIN, approachFor, getSettings, resetSettings, updateSettings,
 } from '../game/settings';
 import { online } from '../firebase/online';
+import { DEFAULT_KEYS, assignKey, keyLabel } from '../game/keys';
 import { sanitizeNickname, NICKNAME_MAX } from '../firebase/profile';
 import { button, h } from './dom';
 import { stepper } from './stepper';
@@ -50,7 +51,7 @@ export function buildSettingsScreen(opts: { onCalibrate: () => void; onBack: () 
     }),
   );
 
-  list.append(accountSection());
+  list.append(keySection(), accountSection());
 
   const bar = h('div', 'actions');
   bar.append(
@@ -92,6 +93,20 @@ function accountSection(): HTMLElement {
     row.append(input, save);
     box.append(row);
 
+    const share = button('', 'neon secondary small', () => {
+      updateSettings({ publicShare: !getSettings().publicShare });
+      paintShare();
+    });
+    const paintShare = () => {
+      share.textContent = `내 곡을 공유 목록에 공개: ${getSettings().publicShare ? 'ON' : 'OFF'}`;
+      shareHint.textContent = getSettings().publicShare
+        ? '분석한 곡의 제목(파일 이름)·닉네임·노트 수가 "공유 맵" 목록에 올라가요. 음악 파일은 올라가지 않아요.'
+        : '목록에는 올리지 않아요. (리더보드를 위해 맵 자체는 저장되고, 링크를 아는 사람은 열 수 있어요.)';
+    };
+    const shareHint = h('div', 'setting-hint', '');
+    paintShare();
+    box.append(share, shareHint);
+
     if (st.signedIn && st.anonymous) {
       box.append(button('Google 계정 연결', 'neon secondary small', async () => {
         msg.textContent = '로그인 창을 여는 중…';
@@ -117,5 +132,68 @@ function accountSection(): HTMLElement {
     // 입력 중인 닉네임이 사라지지 않도록, 입력창에 포커스가 있으면 다시 그리지 않는다
     if (!box.contains(document.activeElement)) render();
   });
+  return box;
+}
+
+/** PC 키 설정: 레인 버튼을 누른 뒤 원하는 키를 누르면 배정. 이미 쓰는 키면 두 레인이 서로 바뀐다. */
+function keySection(): HTMLElement {
+  const box = h('div', 'setting');
+  const msg = h('div', 'setting-hint', '');
+  const row = h('div', 'mini-row keys');
+  let stopCapture: (() => void) | null = null;
+
+  const render = () => {
+    const keys = getSettings().keys;
+    row.replaceChildren(...keys.map((code, lane) => {
+      const b = document.createElement('button');
+      b.className = 'key-btn';
+      b.append(h('span', 'key-lane', `레인 ${lane + 1}`), h('span', 'key-name', keyLabel(code)));
+      b.addEventListener('click', () => capture(lane, b));
+      return b;
+    }));
+  };
+
+  const capture = (lane: number, btn: HTMLButtonElement) => {
+    stopCapture?.();
+    btn.classList.add('listening');
+    btn.querySelector('.key-name')!.textContent = '키 입력…';
+    msg.textContent = '원하는 키를 누르세요 (Esc: 취소)';
+    const done = () => {
+      window.removeEventListener('keydown', onKey, true);
+      document.removeEventListener('pointerdown', onPointer, true);
+      stopCapture = null;
+      render();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.repeat) return;
+      if (e.code === 'Escape') { msg.textContent = ''; return done(); }
+      const next = assignKey(getSettings().keys, lane, e.code);
+      if (!next) { msg.textContent = '이 키는 쓸 수 없어요. 다른 키를 눌러 주세요.'; return; }
+      const swapped = next.filter((k, i) => k !== getSettings().keys[i]).length > 1;
+      updateSettings({ keys: next });
+      msg.textContent = swapped ? '다른 레인이 쓰던 키라서 두 레인의 키를 서로 바꿨어요.' : '저장했어요.';
+      done();
+    };
+    // 다른 곳을 누르면 취소 (키 버튼 자신을 다시 누르는 경우는 click 핸들러가 새로 시작)
+    const onPointer = (e: PointerEvent) => { if (!(e.target instanceof Element && e.target.closest('.key-btn'))) { msg.textContent = ''; done(); } };
+    window.addEventListener('keydown', onKey, true);
+    document.addEventListener('pointerdown', onPointer, true);
+    stopCapture = done;
+  };
+
+  const reset = button('기본값 (D F J K)', 'neon secondary small', () => {
+    stopCapture?.();
+    updateSettings({ keys: [...DEFAULT_KEYS] });
+    msg.textContent = '기본값으로 되돌렸어요.';
+    render();
+  });
+  box.append(
+    h('div', 'setting-label', 'PC 키 설정'),
+    h('div', 'setting-hint', '키보드로 플레이할 때 쓰는 키예요 (레인 1~4 = 왼쪽 → 오른쪽).\n한/영 상태와 상관없이 자판 위치 기준으로 동작해요.'),
+    row, reset, msg,
+  );
+  render();
   return box;
 }

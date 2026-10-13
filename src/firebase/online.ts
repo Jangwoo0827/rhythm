@@ -8,8 +8,13 @@ import { mapId } from './mapCodec';
 import { Outbox, type OutboxBackend } from './outbox';
 import { getNickname, lastSyncedUid, sanitizeNickname, setLastSyncedUid, setNickname } from './profile';
 import type { LeaderboardRow, LinkResult, Service } from './service';
+import type { SongInfo } from './songCodec';
 
-export type { LeaderboardRow, LinkResult };
+export type { LeaderboardRow, LinkResult, SongInfo };
+
+/** 공개 목록에 올릴 때 필요한 정보 (오디오가 아니라 제목·길이만) */
+export interface PublishInfo { title: string; duration: number }
+interface PendingMap { hash: string; title: string; duration: number }
 
 export interface OnlineStatus {
   /** Firebase 설정(.env)이 있는가. false 면 온라인 기능 전체가 꺼진다. */
@@ -46,7 +51,7 @@ class Online {
   private service: Service | null = null;
   private readonly listeners = new Set<() => void>();
   private readonly outbox: Outbox;
-  private pendingMaps: string[];
+  private pendingMaps: PendingMap[];
   private mapsFlushing: Promise<void> | null = null;
   private profileUid: string | null = null;
   private profileReady = false;
@@ -63,8 +68,10 @@ class Online {
     };
     this.outbox = new Outbox(backend);
     this.outbox.subscribe(() => this.emit());
-    const saved = readJSON<string[]>(PENDING_MAPS_KEY);
-    this.pendingMaps = Array.isArray(saved) ? saved.filter((h) => typeof h === 'string') : [];
+    const saved = readJSON<Array<PendingMap | string>>(PENDING_MAPS_KEY);
+    this.pendingMaps = (Array.isArray(saved) ? saved : [])
+      .map((e) => (typeof e === 'string' ? { hash: e, title: '', duration: 0 } : e)) // 이전 형식(곡 지문만) 호환
+      .filter((e) => e && typeof e.hash === 'string');
   }
 
   // ─── 수명주기 ─────────────────────────────────────────────────────────────
@@ -247,14 +254,16 @@ class Online {
     }
   }
 
-  /** 분석한 맵을 온라인에 저장하도록 예약 (오프라인이면 나중에). 오디오는 올리지 않는다. */
-  publishMaps(songHash: string): void {
+  /**
+   * 분석한 맵을 온라인에 저장하도록 예약 (오프라인이면 나중에). 오디오는 올리지 않는다.
+   * 설정의 "공개 목록" 이 켜져 있으면 공유 맵 둘러보기 목록에도 올린다.
+   */
+  publishMaps(songHash: string, info?: PublishInfo): void {
     if (!this.configured || songHash === SAMPLE_HASH) return;
-    if (!this.pendingMaps.includes(songHash)) {
-      this.pendingMaps.push(songHash);
-      if (this.pendingMaps.length > 20) this.pendingMaps.shift();
-      writeJSON(PENDING_MAPS_KEY, this.pendingMaps);
-    }
+    this.pendingMaps = this.pendingMaps.filter((e) => e.hash !== songHash);
+    this.pendingMaps.push({ hash: songHash, title: info?.title ?? '', duration: info?.duration ?? 0 });
+    if (this.pendingMaps.length > 20) this.pendingMaps.shift();
+    writeJSON(PENDING_MAPS_KEY, this.pendingMaps);
     void this.flushMaps();
   }
 
@@ -268,17 +277,36 @@ class Online {
     const uid = await this.readyUid();
     const svc = this.service;
     if (!uid || !svc) return;
-    for (const hash of [...this.pendingMaps]) {
-      const analysis = loadAnalysis(hash); // 로컬 캐시에서 읽는다
+    for (const entry of [...this.pendingMaps]) {
+      const analysis = loadAnalysis(entry.hash); // 로컬 캐시에서 읽는다
       try {
-        if (analysis) await svc.uploadMaps(uid, analysis);
+        if (analysis) {
+          await svc.uploadMaps(uid, analysis);
+          if (getSettings().publicShare && entry.duration >= 1) {
+            const m = analysis.maps;
+            await svc.publishSong(uid, {
+              songHash: entry.hash,
+              title: entry.title || m.normal.title,
+              mapper: getNickname(),
+              bpm: analysis.bpm,
+              duration: Math.min(3600, entry.duration),
+              counts: { easy: m.easy.notes.length, normal: m.normal.notes.length, hard: m.hard.notes.length },
+            });
+          }
+        }
       } catch (e) {
         if (TRANSIENT.has(codeOf(e))) break;
         // 규칙 거절 등 영구 오류는 버린다
       }
-      this.pendingMaps = this.pendingMaps.filter((h) => h !== hash);
+      this.pendingMaps = this.pendingMaps.filter((p) => p.hash !== entry.hash);
       writeJSON(PENDING_MAPS_KEY, this.pendingMaps);
     }
+  }
+
+  /** 공유 맵 둘러보기: 최신순 목록 (다음 페이지는 next 커서로) */
+  async listSongs(after?: number): Promise<{ rows: SongInfo[]; next: number | null }> {
+    if (!(await this.readyUid()) || !this.service) throw new Error('오프라인이거나 온라인 기능을 쓸 수 없어요.');
+    return this.service.listSongs(20, after);
   }
 
   // ─── 점수 / 리더보드 ──────────────────────────────────────────────────────

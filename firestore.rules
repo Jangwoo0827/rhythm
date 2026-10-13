@@ -4,6 +4,7 @@ rules_version = '2';
 //  - 인증된 사용자(익명 로그인 포함)만 읽고 쓸 수 있다.
 //  - users/{uid}   : 본인 문서만 읽기/쓰기
 //  - maps/{mapId}  : 누구나(로그인 필요) 읽기, 만든 사람이 생성만 가능 (수정·삭제 불가 → 리더보드 기준 맵이 바뀌지 않는다)
+//  - songs/{hash}  : 공유 맵 목록용 메타. 읽기 + 생성만 허용(수정·삭제 불가), 난이도별 노트 수는 실제 맵과 일치해야 한다
 //  - scores/{id}   : 읽기 + 생성만 허용, 수정·삭제 불가
 //  - 맵 JSON 크기 제한: 노트 최대 2500개, 제목 100자, BPM 0~400 (문서 자체도 Firestore 1MiB 제한)
 //  - 오디오 원본은 저장하지 않는다 (Storage 미사용).
@@ -58,6 +59,29 @@ service cloud.firestore {
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.createdAt == request.time
         && mapId == request.resource.data.songHash + '_' + request.resource.data.difficulty;
+      allow update, delete: if false;
+    }
+
+    // ── songs/{songHash}: 공유 맵 둘러보기 목록 ──────────────────
+    function validSong(d, songHash) {
+      return d.keys().hasOnly(['songHash', 'title', 'mapper', 'bpm', 'duration', 'counts', 'uid', 'createdAt'])
+        && d.keys().hasAll(['songHash', 'title', 'mapper', 'bpm', 'duration', 'counts', 'uid', 'createdAt'])
+        && d.songHash == songHash && songHash.matches('^[0-9a-f]{16}$')
+        && d.title is string && d.title.size() >= 1 && d.title.size() <= 100
+        && d.mapper is string && d.mapper.size() >= 1 && d.mapper.size() <= 16
+        && d.bpm is number && d.bpm >= 0 && d.bpm <= 400
+        && d.duration is number && d.duration >= 1 && d.duration <= 3600
+        && d.uid == request.auth.uid
+        && d.createdAt == request.time
+        && d.counts is map && d.counts.keys().hasOnly(['easy', 'normal', 'hard'])
+        && d.counts.easy == get(/databases/$(database)/documents/maps/$(songHash + '_easy')).data.notes.size()
+        && d.counts.normal == get(/databases/$(database)/documents/maps/$(songHash + '_normal')).data.notes.size()
+        && d.counts.hard == get(/databases/$(database)/documents/maps/$(songHash + '_hard')).data.notes.size();
+    }
+
+    match /songs/{songHash} {
+      allow read: if signedIn();
+      allow create: if signedIn() && validSong(request.resource.data, songHash);
       allow update, delete: if false;
     }
 
