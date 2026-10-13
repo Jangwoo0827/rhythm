@@ -1,6 +1,6 @@
 # Rhythm
 
-모바일 웹 리듬 게임 (Vite + TypeScript, Canvas 2D, Web Audio). 진행 상황: **STEP 1 완료** (뼈대).
+모바일 웹 리듬 게임 (Vite + TypeScript, Canvas 2D, Web Audio). 진행 상황: **STEP 2 완료** (음악 업로드와 재생). 다음: STEP 3 자동 맵 생성.
 
 ## 실행
 
@@ -20,6 +20,15 @@ npm run preview      # 빌드 결과 확인
 ### PC에서 테스트
 `D F J K` 키가 레인 1~4. 크롬 개발자도구의 모바일 에뮬레이션(터치)으로도 가능.
 
+## STEP 2 테스트 체크리스트
+- 메뉴 → **음악 파일 선택** → mp3 / m4a / wav / ogg 선택 → 준비 화면(제목, 길이, 노트 수) → **START**
+- 곡이 재생되고 노트가 곡 시작(3초)부터 내려오는지. 소리/노트 싱크는 STEP 1과 같은 방식으로 판정 (어긋나면 STEP 4 오프셋 화면에서 보정)
+- **상단 가운데 ❚❚ 버튼**(또는 PC에서 Esc) → PAUSED → 계속하기(3-2-1 후 재개) / 처음부터 / 나가기
+- 앱 전환·화면 잠금 시 자동 일시정지
+- 깨진 파일 / 5초 미만 / 12분 초과 파일은 안내 메시지 후 메뉴로 복귀
+- 곡이 끝나면 결과 화면 → 다시 하기(같은 곡) / 처음으로
+- ⚠️ 업로드한 곡의 맵은 **임시 맵**(120 BPM 격자, 곡의 실제 박자와 무관)입니다. 자동 생성은 STEP 3.
+
 ## STEP 1 테스트 체크리스트
 - START → 3·2·1 카운트다운 후 노트 낙하, 백킹 사운드가 노트와 맞는지
 - 탭 노트: 판정선에 맞춰 탭 → PERFECT / GREAT / GOOD, 빠르면 FAST, 늦으면 SLOW 표시
@@ -33,10 +42,10 @@ npm run preview      # 빌드 결과 확인
 ## 구조
 ```
 src/
-  audio/     Web Audio 엔진, AudioContext 기반 Clock, 테스트 사운드 합성
+  audio/     Web Audio 엔진, AudioContext 기반 Clock, 파일 디코드(loader), 곡 지문(songHash), 테스트 사운드 합성
   game/      게임 로직(game, judge, score), 샘플 맵, 입력, 렌더러, 이펙트, 원근 레이아웃
   ui/        DOM 오버레이(시작/일시정지/결과), 브라우저 제스처 차단
-  analysis/  (STEP 3) 오디오 분석·맵 생성
+  analysis/  임시 맵(placeholderMap) → STEP 3 에서 오디오 분석·자동 맵 생성으로 교체
   firebase/  (STEP 5) Auth / Firestore
 ```
 

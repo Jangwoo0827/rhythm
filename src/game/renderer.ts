@@ -192,8 +192,14 @@ export class Renderer {
     while (this.drawStart < notes.length && notes[this.drawStart].t + notes[this.drawStart].dur < t - 0.4) this.drawStart++;
     let end = this.drawStart;
     while (end < notes.length && notes[end].t - t < APPROACH) end++;
+    // 판정선을 지나간 노트가 하단 패드 위로 커지며 번지지 않도록 판정선 바로 아래에서 자른다
+    c.save();
+    c.beginPath();
+    c.rect(0, 0, L.w, L.jy + L.noteH * 0.6);
+    c.clip();
     // 먼 노트부터 그려서 가까운 노트가 위에 오도록
     for (let i = end - 1; i >= this.drawStart; i--) this.drawNote(c, L, notes[i], t);
+    c.restore();
   }
 
   private drawNote(c: CanvasRenderingContext2D, L: Layout, n: LiveNote, t: number): void {

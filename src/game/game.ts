@@ -53,7 +53,7 @@ export class Game {
     for (const n of this.notes) this.laneNotes[n.lane].push(n);
     this.score = new ScoreKeeper(this.notes.length);
     const last = this.notes.reduce((m, n) => Math.max(m, n.t + n.dur), 0);
-    this.endTime = last + 1.2;
+    this.endTime = Math.max(last + 1.2, song.duration);
   }
 
   start(): void {
