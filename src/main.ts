@@ -18,6 +18,9 @@ import { approachFor, getSettings, updateSettings } from './game/settings';
 import type { Difficulty, GameMap } from './game/types';
 import { Calibration } from './ui/calibration';
 import { blockGestures } from './ui/gestures';
+import { online } from './firebase/online';
+import { buildShareLink, parseShareHash, parseShareInput } from './firebase/share';
+import { buildLeaderboardScreen } from './ui/leaderboardScreen';
 import { Overlay } from './ui/overlay';
 import { buildSettingsScreen } from './ui/settingsScreen';
 
@@ -65,6 +68,9 @@ function showMenu(): void {
     onRecent: openRecent,
     onTest: () => void onTest(),
     onSettings: openSettings,
+    ...(online.configured
+      ? { online: { onShared: () => openSharedInput(), status: () => online.status(), subscribe: (fn: () => void) => online.subscribe(fn) } }
+      : {}),
   });
 }
 
@@ -109,7 +115,10 @@ async function onTest(): Promise<void> {
   await begin();
 }
 
-async function onFile(file: File): Promise<void> {
+/** 공유 맵으로 시작한 경우: 받아 둔 맵과 곡 지문 */
+interface SharedCtx { hash: string; analysis: CachedAnalysis }
+
+async function onFile(file: File, shared?: SharedCtx): Promise<void> {
   leaveScreen();
   const token = loadToken;
   overlay.showLoading('곡을 불러오는 중…');
@@ -117,18 +126,39 @@ async function onFile(file: File): Promise<void> {
     if (!engine.ready) await engine.unlock();
     const song = await loadSongFile(engine.ctx, file);
     if (token !== loadToken) return;
-    const hash = computeSongHash(song.buffer);
+    const fileHash = computeSongHash(song.buffer);
 
-    // 같은 곡을 이전에 분석했다면 캐시된 맵을 바로 쓴다
-    let analysis = loadAnalysis(hash);
-    if (!analysis) {
-      const setProgress = overlay.showAnalyzing(song.title, showMenu);
-      job = analyzeSong(song.buffer, { songHash: hash, title: song.title }, setProgress);
-      const result = await job.promise;
-      if (token !== loadToken) return;
-      job = null;
-      analysis = { bpm: result.bpm, offset: result.offset, maps: result.maps };
-      saveAnalysis(hash, song.title, analysis);
+    // 공유 맵: 곡 지문이 다르면(다른 인코딩일 수 있음) 사용자에게 확인
+    if (shared && fileHash !== shared.hash) {
+      const ok = await new Promise<boolean>((resolve) => overlay.showConfirm(
+        '곡 지문이 달라요. 같은 곡의 다른 인코딩(mp3/wav 등)이라면 타이밍이 약간 어긋날 수 있어요.\n다른 곡이라면 노트가 전혀 맞지 않아요.\n\n그래도 이 맵으로 플레이할까요?',
+        '그래도 사용', '취소', () => resolve(true), () => resolve(false),
+      ));
+      if (token !== loadToken || !ok) { if (token === loadToken) showMenu(); return; }
+    }
+    const hash = shared?.hash ?? fileHash;
+
+    // 1) 로컬 캐시 → 2) 온라인에 저장된 맵 → 3) 새로 분석 (분석하면 온라인에 저장)
+    let analysis: CachedAnalysis | null = shared?.analysis ?? loadAnalysis(hash);
+    if (analysis) {
+      online.publishMaps(hash); // 아직 온라인에 없으면 올린다 (이미 있으면 건너뜀)
+    } else {
+      if (online.configured) {
+        overlay.showLoading('온라인에서 맵을 확인하는 중…');
+        analysis = await online.fetchMaps(hash);
+        if (token !== loadToken) return;
+        if (analysis) saveAnalysis(hash, song.title, analysis);
+      }
+      if (!analysis) {
+        const setProgress = overlay.showAnalyzing(song.title, showMenu);
+        job = analyzeSong(song.buffer, { songHash: hash, title: song.title }, setProgress);
+        const result = await job.promise;
+        if (token !== loadToken) return;
+        job = null;
+        analysis = { bpm: result.bpm, offset: result.offset, maps: result.maps };
+        saveAnalysis(hash, song.title, analysis);
+        online.publishMaps(hash);
+      }
     }
     analyzed = { buffer: song.buffer, title: song.title, hash, analysis };
     showReady();
@@ -136,6 +166,59 @@ async function onFile(file: File): Promise<void> {
     if (token !== loadToken) return;
     job = null;
     overlay.showMessage(e instanceof Error ? e.message : '곡을 불러오지 못했어요.', showMenu);
+  }
+}
+
+// ─── 온라인: 공유 맵 / 리더보드 ──────────────────────────────────────────────
+function openSharedInput(error = ''): void {
+  leaveScreen();
+  const screen = overlay.showSharedImport({
+    onSubmit: (text) => {
+      const target = parseShareInput(text);
+      if (!target) return screen.setError('링크나 맵 ID 형식이 올바르지 않아요.');
+      void loadShared(target.songHash);
+    },
+    onBack: showMenu,
+  });
+  if (error) screen.setError(error);
+}
+
+async function loadShared(hash: string): Promise<void> {
+  leaveScreen();
+  const token = loadToken;
+  overlay.showLoading('공유된 맵을 불러오는 중…');
+  const found = loadAnalysis(hash) ?? (await online.fetchMaps(hash));
+  if (token !== loadToken) return;
+  if (!found) return openSharedInput('맵을 찾을 수 없어요. 오프라인이거나 아직 공유되지 않은 곡일 수 있어요.');
+  const ctx: SharedCtx = { hash, analysis: found };
+  const n = found.maps.normal;
+  overlay.showSharedPick(
+    { title: n.title, detail: `BPM ${found.bpm > 0 ? found.bpm.toFixed(1) : '-'} · 쉬움 ${found.maps.easy.notes.length} / 보통 ${n.notes.length} / 어려움 ${found.maps.hard.notes.length}노트` },
+    { onBeforePick: () => void engine.unlock(), onFile: (f) => void onFile(f, ctx), onBack: openSharedInput },
+  );
+}
+
+function openLeaderboard(hash: string, title: string, difficulty: Difficulty, back: () => void): void {
+  leaveScreen();
+  overlay.mount(buildLeaderboardScreen({
+    title,
+    difficulty,
+    load: (d) => online.leaderboard(hash, d),
+    myUid: () => online.myUid(),
+    onBack: back,
+  }));
+}
+
+async function shareSong(a: Analyzed): Promise<void> {
+  const url = buildShareLink(location.href, a.hash);
+  online.publishMaps(a.hash);
+  try {
+    if (navigator.share) { await navigator.share({ title: a.title, text: `Rhythm 맵: ${a.title}`, url }); return; }
+    await navigator.clipboard.writeText(url);
+    overlay.toast('공유 링크를 복사했어요');
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') return; // 사용자가 공유 창을 닫음
+    window.prompt('이 링크를 복사해서 공유하세요', url); // 클립보드를 못 쓰는 환경(http 등)
   }
 }
 
@@ -163,6 +246,12 @@ function showReady(): void {
     onSelect: (id) => { updateSettings({ difficulty: id as Difficulty }); selectTrack(a, id as Difficulty); },
     onStart: () => void begin(),
     onBack: showMenu,
+    ...(online.configured
+      ? {
+          onLeaderboard: () => openLeaderboard(a.hash, a.title, getSettings().difficulty, showReady),
+          onShare: () => void shareSong(a),
+        }
+      : {}),
   });
 }
 
@@ -190,7 +279,11 @@ async function begin(): Promise<void> {
     onFinish: (result) => {
       overlay.setPauseVisible(false);
       const { isNewBest, best } = recordPlay(t.meta, t.map.difficulty, result);
-      overlay.showResult({
+      // 개인 최고 기록일 때만 리더보드에 올린다 (오프라인이면 대기열에 보관했다가 연결되면 자동 업로드)
+      const eligible = online.configured && t.meta.songHash !== SAMPLE_HASH;
+      if (eligible && isNewBest) online.submitScore(t.meta.songHash, t.map.difficulty, result);
+      const back = () => overlay.showResult(resultView);
+      const resultView: Parameters<Overlay['showResult']>[0] = {
         result,
         title: t.meta.title,
         difficulty: t.map.difficulty,
@@ -200,7 +293,16 @@ async function begin(): Promise<void> {
         onApplyOffset: (ms) => updateSettings({ offsetMs: ms }),
         onRetry: () => void begin(),
         onQuit: showMenu,
-      });
+        ...(eligible
+          ? {
+              online: {
+                note: isNewBest ? '최고 기록은 리더보드에 자동으로 올라가요 (오프라인이면 연결될 때)' : '최고 기록을 넘으면 리더보드에 올라가요',
+                onLeaderboard: () => openLeaderboard(t.meta.songHash, t.meta.title, t.map.difficulty, back),
+              },
+            }
+          : {}),
+      };
+      back();
     },
   };
   game = g;
@@ -266,7 +368,20 @@ function frame(now: number): void {
 showMenu();
 requestAnimationFrame(frame);
 
+// 오프라인 플레이: 서비스 워커가 앱 파일을 캐시한다 (배포 빌드에서만)
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch(() => { /* 등록 실패해도 앱은 동작 */ }); });
+}
+
+// 온라인(설정이 있을 때만): 익명 로그인, 대기 중인 업로드 재개, 공유 링크(#/song/<곡지문>) 열기
+online.init();
+const deepLink = online.configured ? parseShareHash(location.hash) : null;
+if (deepLink) {
+  history.replaceState(null, '', location.pathname + location.search);
+  void loadShared(deepLink.songHash);
+}
+
 if (import.meta.env.DEV) {
   // 개발 중 콘솔/자동 테스트용
-  Object.assign(window, { __rhythm: { engine, getGame: () => game, getTrack: () => track, renderer } });
+  Object.assign(window, { __rhythm: { engine, getGame: () => game, getTrack: () => track, renderer, online, overlay } });
 }

@@ -8,11 +8,18 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:rules": "npx -y firebase-tools@15 emulators:exec --only firestore --project demo-rhythm \"vitest run --config vitest.rules.config.ts\"",
+    "emulators": "npx -y firebase-tools@15 emulators:start --only auth,firestore --project demo-rhythm",
+    "dev:emu": "VITE_FIREBASE_EMULATOR=1 vite"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^6.0.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.4",
     "vitest": "^5.0.4"
+  },
+  "dependencies": {
+    "firebase": "^13.0.0"
   }
 }

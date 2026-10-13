@@ -1,0 +1,88 @@
+rules_version = '2';
+
+// Rhythm — Firestore 보안 규칙
+//  - 인증된 사용자(익명 로그인 포함)만 읽고 쓸 수 있다.
+//  - users/{uid}   : 본인 문서만 읽기/쓰기
+//  - maps/{mapId}  : 누구나(로그인 필요) 읽기, 만든 사람이 생성만 가능 (수정·삭제 불가 → 리더보드 기준 맵이 바뀌지 않는다)
+//  - scores/{id}   : 읽기 + 생성만 허용, 수정·삭제 불가
+//  - 맵 JSON 크기 제한: 노트 최대 2500개, 제목 100자, BPM 0~400 (문서 자체도 Firestore 1MiB 제한)
+//  - 오디오 원본은 저장하지 않는다 (Storage 미사용).
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // ── users/{uid} ─────────────────────────────────────────────
+    function validSettings(s) {
+      return s is map
+        && s.keys().hasOnly(['speed', 'musicVolume', 'sfxVolume', 'difficulty'])
+        && s.get('speed', 5) is int && s.get('speed', 5) >= 1 && s.get('speed', 5) <= 10
+        && s.get('musicVolume', 1) is number && s.get('musicVolume', 1) >= 0 && s.get('musicVolume', 1) <= 1
+        && s.get('sfxVolume', 1) is number && s.get('sfxVolume', 1) >= 0 && s.get('sfxVolume', 1) <= 1
+        && s.get('difficulty', 'normal') in ['easy', 'normal', 'hard'];
+    }
+
+    function validUser(d) {
+      return d.keys().hasOnly(['nickname', 'settings', 'updatedAt'])
+        && d.keys().hasAll(['nickname', 'updatedAt'])
+        && d.nickname is string && d.nickname.size() >= 1 && d.nickname.size() <= 16
+        && d.updatedAt == request.time
+        && (!('settings' in d) || validSettings(d.settings));
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow create, update: if signedIn() && request.auth.uid == uid && validUser(request.resource.data);
+      allow delete: if false;
+    }
+
+    // ── maps/{songHash}_{difficulty} ───────────────────────────
+    function validMap(d) {
+      return d.keys().hasOnly(['songHash', 'title', 'bpm', 'offset', 'difficulty', 'notes', 'uid', 'createdAt', 'v'])
+        && d.keys().hasAll(['songHash', 'title', 'bpm', 'difficulty', 'notes', 'uid', 'createdAt', 'v'])
+        && d.songHash is string && d.songHash.matches('^[0-9a-f]{16}$')
+        && d.title is string && d.title.size() >= 1 && d.title.size() <= 100
+        && d.bpm is number && d.bpm >= 0 && d.bpm <= 400
+        && (!('offset' in d) || (d.offset is number && d.offset >= 0 && d.offset <= 60))
+        && d.difficulty in ['easy', 'normal', 'hard']
+        && d.notes is list && d.notes.size() >= 1 && d.notes.size() <= 2500
+        && d.v == 1;
+    }
+
+    match /maps/{mapId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && validMap(request.resource.data)
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && mapId == request.resource.data.songHash + '_' + request.resource.data.difficulty;
+      allow update, delete: if false;
+    }
+
+    // ── scores/{scoreId} ───────────────────────────────────────
+    function validScore(d) {
+      return d.keys().hasOnly(['uid', 'mapId', 'nickname', 'score', 'accuracy', 'combo', 'time', 'playedAt'])
+        && d.keys().hasAll(['uid', 'mapId', 'nickname', 'score', 'accuracy', 'combo', 'time', 'playedAt'])
+        && d.uid == request.auth.uid
+        && d.mapId is string && d.mapId.matches('^[0-9a-f]{16}_(easy|normal|hard)$')
+        && exists(/databases/$(database)/documents/maps/$(d.mapId))
+        && d.nickname is string && d.nickname.size() >= 1 && d.nickname.size() <= 16
+        && d.score is int && d.score >= 0 && d.score <= 1000000
+        && d.accuracy is number && d.accuracy >= 0 && d.accuracy <= 100
+        && d.combo is int && d.combo >= 0
+        && d.combo <= get(/databases/$(database)/documents/maps/$(d.mapId)).data.notes.size()
+        && d.time == request.time
+        && d.playedAt is int
+        && d.playedAt <= request.time.toMillis() + 60000
+        && d.playedAt >= request.time.toMillis() - 2592000000;
+    }
+
+    match /scores/{scoreId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && validScore(request.resource.data);
+      allow update, delete: if false;
+    }
+  }
+}

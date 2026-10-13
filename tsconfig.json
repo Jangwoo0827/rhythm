@@ -16,5 +16,5 @@
     "skipLibCheck": true,
     "types": ["vite/client"]
   },
-  "include": ["src", "vite.config.ts"]
+  "include": ["src", "rules-tests", "vite.config.ts", "vitest.rules.config.ts"]
 }
