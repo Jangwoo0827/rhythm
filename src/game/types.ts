@@ -16,6 +16,8 @@ export interface GameMap {
   songHash: string;
   title: string;
   bpm: number;
+  /** 첫 박(beat) 시각(초). 박자선 표시용 (선택) */
+  offset?: number;
   difficulty: Difficulty;
   notes: MapNote[];
 }

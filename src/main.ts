@@ -1,5 +1,6 @@
 import './style.css';
-import { generatePlaceholderMap } from './analysis/placeholderMap';
+import { analyzeSong, type AnalysisJob } from './analysis/client';
+import { DIFFICULTIES, DIFFICULTY_PARAMS } from './analysis/difficulty';
 import { AudioEngine } from './audio/engine';
 import { formatDuration, loadSongFile } from './audio/loader';
 import { computeSongHash } from './audio/songHash';
@@ -9,13 +10,15 @@ import { Game } from './game/game';
 import { Input } from './game/input';
 import { Renderer } from './game/renderer';
 import { SAMPLE_MAP } from './game/sampleMap';
-import type { GameMap } from './game/types';
+import type { Difficulty, GameMap } from './game/types';
 import { blockGestures } from './ui/gestures';
 import { Overlay } from './ui/overlay';
 
 blockGestures();
 
 interface Track { map: GameMap; buffer: AudioBuffer }
+/** 분석이 끝난 업로드 곡: 난이도별 맵을 모두 갖고 있어 재분석 없이 난이도를 바꿀 수 있다 */
+interface Analyzed { buffer: AudioBuffer; title: string; bpm: number; maps: Record<Difficulty, GameMap> }
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 const overlay = new Overlay(document.getElementById('ui')!, () => void pause());
@@ -26,13 +29,18 @@ const effects = new Effects();
 let game: Game | null = null;
 let track: Track | null = null;
 let testTrack: Track | null = null;
-let loadToken = 0; // 로딩 중 취소(뒤로 가기) 대응
+let loadToken = 0; // 로딩/분석 중 취소(뒤로 가기) 대응
+let job: AnalysisJob | null = null;
+let analyzed: Analyzed | null = null;
+let difficulty: Difficulty = 'normal';
 let resumeToken = 0; // 재개 카운트다운 취소 대응
 
 const input = new Input(canvas, () => game, () => renderer.layout);
 
 function showMenu(): void {
   loadToken++;
+  job?.cancel();
+  job = null;
   game = null;
   track = null;
   overlay.setPauseVisible(false);
@@ -62,19 +70,44 @@ async function onFile(file: File): Promise<void> {
     const song = await loadSongFile(engine.ctx, file);
     if (token !== loadToken) return;
     const hash = computeSongHash(song.buffer);
-    const map = generatePlaceholderMap(hash, song.title, song.buffer.duration);
-    track = { map, buffer: song.buffer };
+
+    const setProgress = overlay.showAnalyzing(song.title, showMenu);
+    job = analyzeSong(song.buffer, { songHash: hash, title: song.title }, setProgress);
+    const result = await job.promise;
+    if (token !== loadToken) return;
+    job = null;
+
+    analyzed = { buffer: song.buffer, title: song.title, bpm: result.bpm, maps: result.maps };
     engine.setHitBuffer(createHitSound(engine.ctx));
-    overlay.showReady(
-      song.title,
-      `${formatDuration(song.buffer.duration)} · 노트 ${map.notes.length}개 (임시 맵)`,
-      () => void begin(),
-      showMenu,
-    );
+    showReady();
   } catch (e) {
     if (token !== loadToken) return;
+    job = null;
     overlay.showMessage(e instanceof Error ? e.message : '곡을 불러오지 못했어요.', showMenu);
   }
+}
+
+function showReady(): void {
+  const a = analyzed;
+  if (!a) return;
+  const dur = a.buffer.duration;
+  overlay.showReady({
+    title: a.title,
+    info: `${formatDuration(dur)} · ${a.bpm > 0 ? `BPM ${a.bpm.toFixed(1)}` : 'BPM 감지 실패'}`,
+    options: DIFFICULTIES.map((d) => {
+      const n = a.maps[d].notes.length;
+      return {
+        id: d,
+        label: DIFFICULTY_PARAMS[d].label,
+        detail: `${n}노트 · ${(n / dur).toFixed(1)}/s`,
+        playable: n >= 5,
+      };
+    }),
+    selected: difficulty,
+    onSelect: (id) => { difficulty = id as Difficulty; track = { map: a.maps[difficulty], buffer: a.buffer }; },
+    onStart: () => void begin(),
+    onBack: showMenu,
+  });
 }
 
 async function begin(): Promise<void> {
@@ -166,5 +199,5 @@ requestAnimationFrame(frame);
 
 if (import.meta.env.DEV) {
   // 개발 중 콘솔/자동 테스트용
-  Object.assign(window, { __rhythm: { engine, getGame: () => game, renderer } });
+  Object.assign(window, { __rhythm: { engine, getGame: () => game, getTrack: () => track, renderer } });
 }

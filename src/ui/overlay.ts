@@ -71,15 +71,68 @@ export class Overlay {
     this.show([h('div', 'sub error', text)], [{ label: '돌아가기', onClick: onBack }]);
   }
 
-  /** 곡 준비 완료. START 클릭이 AudioContext 활성화 제스처가 된다. */
-  showReady(title: string, info: string, onStart: () => void, onBack: () => void): void {
+  /** 분석 진행률 화면. 반환된 함수로 진행률(0~1)을 갱신한다. */
+  showAnalyzing(title: string, onCancel: () => void): (p: number) => void {
+    const fill = h('div', 'bar-fill');
+    const bar = h('div', 'bar');
+    bar.append(fill);
+    const pct = h('div', 'sub', '0%');
     this.show([
       h('div', 'title song', title),
-      h('div', 'sub', info),
-    ], [
-      { label: 'START', onClick: onStart },
-      { label: '다른 곡 선택', onClick: onBack, secondary: true },
-    ]);
+      h('div', 'sub', '박자와 노트를 분석하는 중…'),
+      bar,
+      pct,
+    ], [{ label: '취소', onClick: onCancel, secondary: true }]);
+    return (p) => {
+      const v = Math.max(0, Math.min(1, p));
+      fill.style.width = `${(v * 100).toFixed(1)}%`;
+      pct.textContent = `${Math.round(v * 100)}%`;
+    };
+  }
+
+  /** 곡 준비 완료 + 난이도 선택. START 클릭이 AudioContext 활성화 제스처가 된다. */
+  showReady(opts: {
+    title: string;
+    info: string;
+    options: Array<{ id: string; label: string; detail: string; playable: boolean }>;
+    selected: string;
+    onSelect: (id: string) => void;
+    onStart: () => void;
+    onBack: () => void;
+  }): void {
+    const seg = h('div', 'seg');
+    const start = document.createElement('button');
+    start.className = 'neon';
+    start.textContent = 'START';
+    start.addEventListener('click', opts.onStart);
+
+    const select = (id: string) => {
+      for (const b of seg.querySelectorAll('button')) b.classList.toggle('on', b.dataset.id === id);
+      const o = opts.options.find((x) => x.id === id);
+      start.disabled = !o?.playable;
+      note.textContent = o && !o.playable ? '노트가 너무 적어요. 다른 난이도를 선택하거나 다른 곡을 골라 주세요.' : '';
+      opts.onSelect(id);
+    };
+    for (const o of opts.options) {
+      const b = document.createElement('button');
+      b.dataset.id = o.id;
+      b.className = 'seg-btn';
+      b.append(h('span', 'seg-label', o.label), h('span', 'seg-detail', o.detail));
+      b.addEventListener('click', () => select(o.id));
+      seg.append(b);
+    }
+    const note = h('div', 'sub error', '');
+
+    const screen = h('div', 'screen');
+    const bar = h('div', 'actions');
+    const back = document.createElement('button');
+    back.className = 'neon secondary';
+    back.textContent = '다른 곡 선택';
+    back.addEventListener('click', opts.onBack);
+    bar.append(start, back);
+    screen.append(h('div', 'title song', opts.title), h('div', 'sub', opts.info), seg, note, bar);
+    this.root.replaceChildren(screen);
+    select(opts.selected);
   }
 
   showPaused(onResume: () => void, onRestart: () => void, onQuit: () => void): void {

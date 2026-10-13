@@ -135,10 +135,11 @@ export class Renderer {
     // 박자선: 낙하 속도감을 준다
     if (game && game.map.bpm > 0) {
       const beat = 60 / game.map.bpm;
-      const first = Math.ceil(t / beat);
+      const off = game.map.offset ?? 0;
+      const first = Math.ceil((t - off) / beat);
       c.lineWidth = 1;
-      for (let k = first; k * beat - t < APPROACH; k++) {
-        const p = 1 - (k * beat - t) / APPROACH;
+      for (let k = first; off + k * beat - t < APPROACH; k++) {
+        const p = 1 - (off + k * beat - t) / APPROACH;
         if (p < 0 || p > 1) continue;
         const s = scaleAt(L, p);
         const y = yAt(L, s);
