@@ -1,5 +1,6 @@
 import type { Game } from './game';
 import { LANES } from './types';
+import { isField } from '../ui/gestures';
 import { laneFromX, type Layout } from './layout';
 
 const KEYS: Record<string, number> = { KeyD: 0, KeyF: 1, KeyJ: 2, KeyK: 3 };
@@ -58,7 +59,7 @@ export class Input {
 
   private onKeyDown = (e: KeyboardEvent): void => {
     const lane = KEYS[e.code];
-    if (lane === undefined || e.repeat) return;
+    if (lane === undefined || e.repeat || isField(e.target)) return;
     e.preventDefault();
     this.counts[lane]++;
     this.press(lane, e.timeStamp);
@@ -66,7 +67,7 @@ export class Input {
 
   private onKeyUp = (e: KeyboardEvent): void => {
     const lane = KEYS[e.code];
-    if (lane === undefined) return;
+    if (lane === undefined || isField(e.target)) return;
     e.preventDefault();
     if (--this.counts[lane] <= 0) {
       this.counts[lane] = 0;

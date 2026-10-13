@@ -1,6 +1,6 @@
 # Rhythm
 
-모바일 웹 리듬 게임 (Vite + TypeScript, Canvas 2D, Web Audio). 진행 상황: **STEP 4 완료** (오프셋 보정·설정·결과 화면·곡 목록). 다음: STEP 5 Firebase 온라인 저장.
+모바일 웹 리듬 게임 (Vite + TypeScript, Canvas 2D, Web Audio). 진행 상황: **STEP 5 완료** (Firebase 온라인 저장). 모든 STEP 구현 완료.
 
 ## 실행
 
@@ -9,7 +9,9 @@ npm install
 npm run dev          # http://localhost:5173  (같은 와이파이의 폰에서는 터미널에 뜨는 Network 주소)
 npm run build        # 타입체크 + 프로덕션 빌드
 npm run preview      # 빌드 결과 확인
-npm test             # 분석 알고리즘 단위 테스트 (vitest)
+npm test             # 단위 테스트 (vitest): 분석 알고리즘·설정·곡 목록·맵 코덱·outbox
+npm run test:rules   # Firestore 보안 규칙 테스트 (에뮬레이터 자동 실행, Java 필요)
+npm run emulators    # 로컬 Auth+Firestore 에뮬레이터  →  npm run dev:emu 로 앱 연결
 ```
 
 ### GitHub Pages 배포 (HTTPS 주소로 폰 테스트)
@@ -19,7 +21,7 @@ PR 에서는 배포 없이 검증(타입체크·테스트·빌드)만 돌립니�
 1. 저장소 **Settings → Pages → Build and deployment → Source** 를 **GitHub Actions** 로 설정 (최초 1회)
 2. 변경 사항을 `main` 에 머지 (또는 Actions 탭에서 *Run workflow*)
 3. 배포 주소: **https://jangwoo0827.github.io/rhythm/** (Actions 실행 결과의 `github-pages` 환경에도 표시)
-4. 폰에서 접속 → 홈 화면에 추가(Android 크롬: ⋮ → 홈 화면에 추가 / iOS 사파리: 공유 → 홈 화면에 추가)하면 세로 고정 전체화면 앱처럼 실행
+4. 폰에서 접속 (첫 방문 후엔 오프라인에서도 열림) → 홈 화면에 추가(Android 크롬: ⋮ → 홈 화면에 추가 / iOS 사파리: 공유 → 홈 화면에 추가)하면 세로 고정 전체화면 앱처럼 실행
 
 빌드는 `base: './'` 상대 경로라서 저장소 이름이나 도메인이 바뀌어도 그대로 동작합니다.
 Firebase 설정값(STEP 5)은 저장소 *Settings → Secrets and variables → Actions → Variables* 에
@@ -29,10 +31,35 @@ Firebase 설정값(STEP 5)은 저장소 *Settings → Secrets and variables → 
 1. PC에서 `npm run dev` 실행 → 터미널의 `Network: http://192.168.x.x:5173/` 확인
 2. 폰 브라우저(크롬/사파리)에서 그 주소로 접속 (PC 방화벽이 5173 포트를 막고 있으면 허용)
 3. 접속이 안 되면 같은 와이파이인지, 게스트 와이파이(기기 간 격리)가 아닌지 확인
-4. 홈 화면 추가(PWA)·서비스워커·구글 로그인은 HTTPS가 필요하므로 STEP 5에서 별도 안내 (STEP 1~4는 http로 충분)
+4. 서비스 워커(오프라인)·구글 로그인·클립보드는 HTTPS(또는 localhost)가 필요하므로 위 GitHub Pages 주소를 쓰는 것이 편합니다 (게임 자체는 http LAN으로도 동작)
 
 ### PC에서 테스트
 `D F J K` 키가 레인 1~4. 크롬 개발자도구의 모바일 에뮬레이션(터치)으로도 가능.
+
+## STEP 5 온라인 기능 (Firebase)
+설정 방법은 **[docs/FIREBASE.md](docs/FIREBASE.md)**. Firebase 를 설정하지 않으면 온라인 버튼만 숨겨지고 게임은 그대로 동작합니다.
+
+- **로그인**: 앱을 열면 익명 로그인 → 설정에서 **Google 계정 연결**(익명 계정의 uid·기록이 유지됨, 이미 다른 계정에 연결된 구글 계정이면 그 계정으로 전환)
+- **Firestore**: `users/{uid}`(닉네임·설정), `maps/{곡지문}_{난이도}`(맵 JSON + 만든 사람 uid), `scores/{id}`(점수·정확도·콤보·시간). 오디오 원본은 저장하지 않음
+- **곡 지문 흐름**: 같은 곡을 올리면 ① 로컬 캐시 → ② 온라인에 저장된 맵 → ③ 없을 때만 분석 후 저장
+- **맵 공유**: 준비 화면 **🔗 맵 공유**(링크 복사/공유 시트) → 받은 사람은 링크를 열거나 메뉴 **공유 맵 불러오기**에 링크·ID 붙여넣기 → 각자 자기 곡 파일 선택 (곡 지문이 다르면 확인 후 진행)
+- **리더보드**: 곡·난이도별 상위 20명 (준비/결과 화면의 🏆). 개인 최고 기록을 갱신했을 때만 업로드
+- **오프라인**: 서비스 워커가 앱을 캐시해 비행기 모드에서도 열리고 플레이 가능. 점수·맵은 기기에 보관했다가 온라인 복귀 시 자동 동기화 (메뉴에 `업로드 대기 N` 표시)
+- **보안 규칙** (`firestore.rules`): 인증된 사용자만, 본인 문서만 쓰기, `scores` 생성만 허용(수정·삭제 불가), 맵은 생성만·노트 2500개 제한, 점수 범위·서버 시각 검증
+
+### STEP 5 테스트 체크리스트
+**Firebase 없이 (설정 전)**
+- 메뉴에 온라인 버튼이 없고, 설정 화면의 온라인 계정 영역에 설정 안내가 보임 / 게임은 정상
+- 배포 주소에서 한 번 열어 본 뒤 **비행기 모드로 새로고침** → 앱이 열리고 곡 업로드·플레이가 됨 (홈 화면에 추가한 앱도 동일)
+
+**Firebase 설정 후**
+- 메뉴 상단에 `☁ Player1234 (익명)` 표시
+- 곡 업로드 → 플레이 → 결과 화면 `최고 기록은 리더보드에 자동으로 올라가요` → **🏆 리더보드**에 내 닉네임이 강조되어 표시
+- 설정 → 닉네임 변경 → 리더보드 이름에 반영 (새 점수부터)
+- **Google 계정 연결** → 이메일이 표시되고 기록이 유지. 다른 기기에서 같은 구글 계정으로 연결하면 닉네임·설정이 따라옴
+- **비행기 모드로 플레이** → 결과 후 메뉴에 `업로드 대기 1` → 비행기 모드 해제 → 잠시 후 대기가 사라지고 리더보드에 반영
+- **친구 폰**: 🔗 맵 공유 링크를 보내 → 친구가 링크를 열면 곡 파일 선택 화면 → 같은 곡 파일을 고르면 분석 없이 바로 시작, 리더보드에 서로의 기록이 보임
+- 구글 로그인에서 오류가 나면 앱이 보여 주는 안내(승인된 도메인, 로그인 방법 활성화 등)를 따를 것
 
 ## STEP 4 테스트 체크리스트
 - 메뉴 → **⚙ 설정**: 노트 속도(1~10), 판정 오프셋(±300ms, −10/−1/+1/+10 버튼, 길게 누르면 반복), 음악/효과음 볼륨. 값은 **새로고침/재접속 후에도 유지**(localStorage)
@@ -95,7 +122,8 @@ src/
   game/      게임 로직(game, judge, score), 설정(settings), 곡 목록·맵 캐시(library), 오프셋 추정, 샘플 맵, 입력, 렌더러, 이펙트, 원근 레이아웃
   ui/        DOM 오버레이(메뉴·곡 목록·결과), 설정/오프셋 보정 화면, 브라우저 제스처 차단
   analysis/  FFT·spectral flux·onset 검출·BPM 추정·난이도별 맵 생성 (Web Worker)
-  firebase/  (STEP 5) Auth / Firestore
+  firebase/  Auth·Firestore 연동: 설정(config), 서비스(service), 지연 로딩 퍼사드(online), 맵 코덱, 점수 대기열(outbox), 프로필, 공유 링크 파싱
+  (루트) firestore.rules · firestore.indexes.json · firebase.json · rules-tests/ · scripts/sw.template.js(오프라인 서비스 워커)
 ```
 
 ### 타이밍 설계

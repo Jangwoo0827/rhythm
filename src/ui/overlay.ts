@@ -1,6 +1,7 @@
 import type { BestScore, SongEntry } from '../game/library';
 import { SAMPLE_HASH } from '../game/library';
 import type { Difficulty, Result } from '../game/types';
+import type { OnlineStatus } from '../firebase/online';
 import { button, fileInput, h } from './dom';
 
 type Action = { label: string; onClick: () => void; secondary?: boolean };
@@ -10,6 +11,7 @@ const DIFF_LABEL: Record<Difficulty, string> = { easy: '쉬움', normal: '보통
 /** 메뉴 / 곡 목록 / 준비 / 일시정지 / 결과 화면과 일시정지 버튼 (DOM 오버레이). 게임 캔버스 위에 덮어씌운다. */
 export class Overlay {
   private readonly pauseBtn: HTMLButtonElement;
+  private subs: Array<() => void> = [];
 
   constructor(private readonly root: HTMLElement, onPause: () => void) {
     this.pauseBtn = document.createElement('button');
@@ -26,12 +28,26 @@ export class Overlay {
   }
 
   hide(): void {
-    this.root.replaceChildren();
+    this.setScreen();
+  }
+
+  /** 화면 교체. 이전 화면의 구독(온라인 상태 표시 등)을 정리한다. */
+  private setScreen(...children: HTMLElement[]): void {
+    for (const off of this.subs) off();
+    this.subs = [];
+    this.root.replaceChildren(...children);
+  }
+
+  /** 잠깐 떴다 사라지는 안내 메시지 */
+  toast(text: string): void {
+    const el = h('div', 'toast', text);
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 2600);
   }
 
   /** 외부에서 만든 화면(설정, 보정 등)을 표시 */
   mount(el: HTMLElement): void {
-    this.root.replaceChildren(el);
+    this.setScreen(el);
   }
 
   /**
@@ -43,6 +59,8 @@ export class Overlay {
     onRecent: () => void;
     onTest: () => void;
     onSettings: () => void;
+    /** 온라인 기능이 설정된 경우에만 전달 */
+    online?: { onShared: () => void; status: () => OnlineStatus; subscribe: (fn: () => void) => () => void };
   }): void {
     const input = fileInput(opts.onFile);
     const screen = h('div', 'screen');
@@ -50,17 +68,26 @@ export class Overlay {
     bar.append(
       button('음악 파일 선택', 'neon', () => { opts.onBeforePick(); input.click(); }),
       button('최근 플레이한 곡', 'neon secondary', opts.onRecent),
+    );
+    if (opts.online) bar.append(button('공유 맵 불러오기', 'neon secondary', opts.online.onShared));
+    bar.append(
       button('테스트 곡으로 플레이', 'neon secondary', opts.onTest),
       button('⚙ 설정', 'neon secondary', opts.onSettings),
     );
+    const status = h('div', 'online-status');
+    const refresh = () => { if (opts.online) status.textContent = describeStatus(opts.online.status()); };
+    refresh();
     screen.append(
       h('div', 'logo', 'RHYTHM'),
       h('div', 'sub', '내 음악으로 플레이하세요'),
+      status,
       h('div', 'hint', '화면 아래 4개 레인을 탭 / 길게 눌러 롱노트\nPC 테스트: D F J K 키'),
       bar,
       input,
     );
-    this.root.replaceChildren(screen);
+    this.setScreen(screen);
+    // 구독은 화면 교체(setScreen 이 이전 구독을 정리함) 이후에 등록한다
+    if (opts.online) this.subs.push(opts.online.subscribe(refresh));
   }
 
   /** 최근 플레이한 곡. 곡 파일은 저장하지 않으므로 항목을 누르면 같은 파일을 다시 고르게 한다. */
@@ -111,7 +138,7 @@ export class Overlay {
       bar,
       input,
     );
-    this.root.replaceChildren(screen);
+    this.setScreen(screen);
   }
 
   showLoading(text: string): void {
@@ -150,6 +177,9 @@ export class Overlay {
     onSelect: (id: string) => void;
     onStart: () => void;
     onBack: () => void;
+    /** 온라인 기능이 켜진 경우에만 전달 */
+    onLeaderboard?: () => void;
+    onShare?: () => void;
   }): void {
     const seg = h('div', 'seg');
     const start = button('START', 'neon', opts.onStart);
@@ -173,9 +203,12 @@ export class Overlay {
 
     const screen = h('div', 'screen');
     const bar = h('div', 'actions');
+    const online = h('div', 'mini-row');
+    if (opts.onLeaderboard) online.append(button('🏆 리더보드', 'neon secondary small', opts.onLeaderboard));
+    if (opts.onShare) online.append(button('🔗 맵 공유', 'neon secondary small', opts.onShare));
     bar.append(start, button('다른 곡 선택', 'neon secondary', opts.onBack));
-    screen.append(h('div', 'title song', opts.title), h('div', 'sub', opts.info), seg, note, bar);
-    this.root.replaceChildren(screen);
+    screen.append(h('div', 'title song', opts.title), h('div', 'sub', opts.info), seg, note, online, bar);
+    this.setScreen(screen);
     select(opts.selected);
   }
 
@@ -191,7 +224,7 @@ export class Overlay {
   showCount(n: number): void {
     const screen = h('div', 'screen clear');
     screen.append(h('div', 'count', String(n)));
-    this.root.replaceChildren(screen);
+    this.setScreen(screen);
   }
 
   showResult(o: {
@@ -204,6 +237,8 @@ export class Overlay {
     onApplyOffset: (newOffsetMs: number) => void;
     onRetry: () => void;
     onQuit: () => void;
+    /** 온라인 저장 대상 곡일 때만 */
+    online?: { note: string; onLeaderboard: () => void };
   }): void {
     const r = o.result;
     const grid = h('div', 'grid');
@@ -239,9 +274,62 @@ export class Overlay {
       content.push(tip, apply);
     }
 
+    if (o.online) {
+      content.push(h('div', 'hint', o.online.note), button('🏆 리더보드', 'neon secondary small', o.online.onLeaderboard));
+    }
+
     this.show(content, [
       { label: '다시 하기', onClick: o.onRetry },
       { label: '처음으로', onClick: o.onQuit, secondary: true },
+    ]);
+  }
+
+  /** 공유 맵 불러오기: 링크 또는 맵 ID 입력 */
+  showSharedImport(opts: { onSubmit: (text: string) => void; onBack: () => void }): { setError: (msg: string) => void } {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'text-input';
+    input.placeholder = '공유 링크 또는 맵 ID';
+    input.setAttribute('autocomplete', 'off');
+    input.setAttribute('autocapitalize', 'off');
+    input.spellcheck = false;
+    const error = h('div', 'sub error', '');
+    const submit = () => opts.onSubmit(input.value);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+    const screen = h('div', 'screen');
+    const bar = h('div', 'actions');
+    bar.append(button('불러오기', 'neon', submit), button('돌아가기', 'neon secondary', opts.onBack));
+    screen.append(
+      h('div', 'title', '공유 맵 불러오기'),
+      h('div', 'hint', '친구가 보내 준 링크나 맵 ID를 붙여 넣으세요.\n곡 파일은 각자 가지고 있는 것을 선택해요.'),
+      input, error, bar,
+    );
+    this.setScreen(screen);
+    return { setError: (msg) => { error.textContent = msg; } };
+  }
+
+  /** 공유 맵을 찾았을 때: 같은 곡 파일을 고르게 한다 */
+  showSharedPick(info: { title: string; detail: string }, opts: { onBeforePick: () => void; onFile: (f: File) => void; onBack: () => void }): void {
+    const input = fileInput(opts.onFile);
+    const screen = h('div', 'screen');
+    const bar = h('div', 'actions');
+    bar.append(
+      button('곡 파일 선택', 'neon', () => { opts.onBeforePick(); input.click(); }),
+      button('돌아가기', 'neon secondary', opts.onBack),
+    );
+    screen.append(
+      h('div', 'title song', info.title),
+      h('div', 'sub', info.detail),
+      h('div', 'hint', '맵을 찾았어요! 이 곡의 음악 파일을 선택하세요.\n같은 곡이어야 노트가 박자에 맞아요.'),
+      bar, input,
+    );
+    this.setScreen(screen);
+  }
+
+  showConfirm(text: string, yes: string, no: string, onYes: () => void, onNo: () => void): void {
+    this.show([h('div', 'sub', text)], [
+      { label: yes, onClick: onYes },
+      { label: no, onClick: onNo, secondary: true },
     ]);
   }
 
@@ -253,7 +341,7 @@ export class Overlay {
       for (const a of actions) bar.append(button(a.label, a.secondary ? 'neon secondary' : 'neon', a.onClick));
       screen.append(bar);
     }
-    this.root.replaceChildren(screen);
+    this.setScreen(screen);
   }
 }
 
@@ -277,4 +365,11 @@ export function formatAgo(ts: number, now = Date.now()): string {
   if (hr < 24) return `${hr}시간 전`;
   const d = Math.floor(hr / 24);
   return d < 30 ? `${d}일 전` : new Date(ts).toLocaleDateString('ko-KR');
+}
+
+export function describeStatus(st: OnlineStatus): string {
+  if (!st.configured) return '';
+  const who = st.signedIn ? (st.anonymous ? '익명' : (st.email ?? 'Google')) : '오프라인';
+  const pending = st.pending > 0 ? ` · 업로드 대기 ${st.pending}` : '';
+  return `${st.signedIn ? '☁' : '○'} ${st.nickname} (${who})${pending}`;
 }

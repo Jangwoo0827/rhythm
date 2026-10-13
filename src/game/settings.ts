@@ -48,6 +48,14 @@ export function sanitizeSettings(raw: unknown): Settings {
 }
 
 let current: Settings = sanitizeSettings(readJSON(KEY));
+const listeners = new Set<(s: Readonly<Settings>) => void>();
+
+/** 설정이 바뀔 때마다 호출 (클라우드 동기화용). 해제 함수를 반환. */
+export function onSettingsChange(fn: (s: Readonly<Settings>) => void): () => void {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
+const emit = () => { for (const fn of listeners) fn(current); };
 
 export function getSettings(): Readonly<Settings> {
   return current;
@@ -56,11 +64,13 @@ export function getSettings(): Readonly<Settings> {
 export function updateSettings(patch: Partial<Settings>): Readonly<Settings> {
   current = sanitizeSettings({ ...current, ...patch });
   writeJSON(KEY, current);
+  emit();
   return current;
 }
 
 export function resetSettings(): Readonly<Settings> {
   current = { ...DEFAULT_SETTINGS };
   writeJSON(KEY, current);
+  emit();
   return current;
 }
