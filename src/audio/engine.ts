@@ -52,7 +52,9 @@ export class AudioEngine {
     silent.buffer = this.ctx.createBuffer(1, 1, this.ctx.sampleRate);
     silent.connect(this.ctx.destination);
     silent.start(0);
-    await resumed;
+    // 사용자 제스처 밖에서 호출되면(예: 저장된 곡 자동 로드) 일부 브라우저에서 resume 이 끝나지 않을 수 있어
+    // 시간 제한을 둔다. 이 경우 곡 시작(START) 버튼의 unlock 이 제스처 안에서 다시 깨운다.
+    await Promise.race([resumed, new Promise<void>((r) => setTimeout(r, 2500))]);
     this.clock.snap();
   }
 

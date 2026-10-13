@@ -14,6 +14,8 @@ export interface Settings {
   keys: string[];
   /** 내가 분석한 곡을 공개 목록(공유 맵 둘러보기)에 올릴지 */
   publicShare: boolean;
+  /** 곡 파일을 이 기기 브라우저에 저장해 다음에 파일을 다시 고르지 않게 할지 (서버로는 올라가지 않음) */
+  saveSongs: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -24,6 +26,7 @@ export const DEFAULT_SETTINGS: Settings = {
   difficulty: 'normal',
   keys: [...DEFAULT_KEYS],
   publicShare: true,
+  saveSongs: true,
 };
 
 export const OFFSET_LIMIT = 300;
@@ -53,6 +56,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     difficulty: diff,
     keys: sanitizeKeys(r.keys),
     publicShare: typeof r.publicShare === 'boolean' ? r.publicShare : d.publicShare,
+    saveSongs: typeof r.saveSongs === 'boolean' ? r.saveSongs : d.saveSongs,
   };
 }
 

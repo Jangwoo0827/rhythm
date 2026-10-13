@@ -101,6 +101,9 @@ export class Overlay {
       onSample: () => void;
       onDelete: (e: SongEntry) => void;
       onBack: () => void;
+      /** 이 기기에 곡 파일이 저장된 곡의 지문 / 그런 곡을 눌렀을 때 (파일 선택 없이 바로 시작) */
+      stored: Set<string>;
+      onStored: (e: SongEntry) => void;
     },
   ): void {
     const input = fileInput(opts.onFile);
@@ -113,13 +116,14 @@ export class Overlay {
       row.setAttribute('role', 'button');
       row.addEventListener('click', () => {
         if (e.songHash === SAMPLE_HASH) return opts.onSample();
+        if (opts.stored.has(e.songHash)) return opts.onStored(e);
         opts.onBeforePick();
         input.click();
       });
       const main = h('div', 'row-main');
       main.append(
         h('div', 'row-title', e.title),
-        h('div', 'row-meta', `${e.bpm > 0 ? `BPM ${e.bpm.toFixed(0)} · ` : ''}${fmtTime(e.duration)} · ${e.plays}회 · ${formatAgo(e.lastPlayed)}`),
+        h('div', 'row-meta', `${e.bpm > 0 ? `BPM ${e.bpm.toFixed(0)} · ` : ''}${fmtTime(e.duration)} · ${e.plays}회 · ${formatAgo(e.lastPlayed)}${opts.stored.has(e.songHash) ? ' · 💾 이 기기에 저장됨' : ''}`),
       );
       const chips = h('div', 'chips');
       for (const d of ['easy', 'normal', 'hard'] as const) chips.append(chip(DIFF_LABEL[d], e.best[d]));
@@ -135,7 +139,7 @@ export class Overlay {
     bar.append(button('돌아가기', 'neon secondary', opts.onBack));
     screen.append(
       h('div', 'title', '최근 플레이한 곡'),
-      h('div', 'hint', '곡 파일은 저장되지 않아요.\n항목을 누르고 같은 파일을 다시 고르면 분석 없이 바로 시작해요.'),
+      h('div', 'hint', '💾 표시가 있는 곡은 이 기기에 저장돼 있어 눌러서 바로 시작해요.\n표시가 없는 곡은 항목을 누르고 같은 파일을 다시 고르면 분석 없이 시작해요.\n(곡 파일은 서버에 올라가지 않아요)'),
       list,
       bar,
       input,
