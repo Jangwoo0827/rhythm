@@ -3,6 +3,7 @@ import { analyzeSong, type AnalysisJob } from './analysis/client';
 import { DIFFICULTIES, DIFFICULTY_PARAMS } from './analysis/difficulty';
 import { AudioEngine } from './audio/engine';
 import { formatDuration, loadSongFile } from './audio/loader';
+import { loadSong, saveSong, storedHashes } from './audio/songStore';
 import { computeSongHash } from './audio/songHash';
 import { createBackingTrack } from './audio/testSound';
 import { Effects } from './game/effects';
@@ -66,7 +67,7 @@ function showMenu(): void {
   overlay.showMenu({
     onBeforePick: () => void engine.unlock(),
     onFile: (f) => void onFile(f),
-    onRecent: openRecent,
+    onRecent: () => void openRecent(),
     onTest: () => void onTest(),
     onSettings: openSettings,
     ...(online.configured
@@ -90,13 +91,18 @@ function openCalibration(): void {
   overlay.mount(c.el);
 }
 
-function openRecent(): void {
+async function openRecent(): Promise<void> {
   leaveScreen();
+  const token = loadToken;
+  const stored = await storedHashes();
+  if (token !== loadToken) return;
   overlay.showRecent(getLibrary(), {
+    stored,
+    onStored: (e) => void playStored(e.songHash),
     onBeforePick: () => void engine.unlock(),
     onFile: (f) => void onFile(f),
     onSample: () => void onTest(),
-    onDelete: (e) => { removeSong(e.songHash); openRecent(); },
+    onDelete: (e) => { removeSong(e.songHash); void openRecent(); },
     onBack: showMenu,
   });
 }
@@ -119,7 +125,7 @@ async function onTest(): Promise<void> {
 /** 공유 맵으로 시작한 경우: 받아 둔 맵과 곡 지문 */
 interface SharedCtx { hash: string; analysis: CachedAnalysis }
 
-async function onFile(file: File, shared?: SharedCtx): Promise<void> {
+async function onFile(file: File, shared?: SharedCtx, fromStore = false): Promise<void> {
   leaveScreen();
   const token = loadToken;
   overlay.showLoading('곡을 불러오는 중…');
@@ -162,12 +168,26 @@ async function onFile(file: File, shared?: SharedCtx): Promise<void> {
       }
     }
     analyzed = { buffer: song.buffer, title: song.title, hash, analysis };
+    // 다음에 파일을 다시 고르지 않도록 이 기기에만 저장 (곡 지문이 맵과 일치할 때만, 서버로는 올라가지 않음)
+    if (getSettings().saveSongs && !fromStore && fileHash === hash) void saveSong(hash, file, file.name);
     showReady();
   } catch (e) {
     if (token !== loadToken) return;
     job = null;
     overlay.showMessage(e instanceof Error ? e.message : '곡을 불러오지 못했어요.', showMenu);
   }
+}
+
+/** 이 기기에 저장된 곡으로 바로 시작 (파일 선택 없음). 저장본이 없거나 열 수 없으면 파일 선택으로 안내 */
+async function playStored(hash: string): Promise<void> {
+  void engine.unlock(); // 클릭 제스처 안에서 오디오를 먼저 깨운다 (기다리지는 않음)
+  const file = await loadSong(hash);
+  const cached = loadAnalysis(hash);
+  if (!file) {
+    overlay.toast('저장된 곡을 찾을 수 없어요. 파일을 선택해 주세요.');
+    return;
+  }
+  void onFile(file, cached ? { hash, analysis: cached } : undefined, true);
 }
 
 // ─── 온라인: 공유 맵 / 리더보드 ──────────────────────────────────────────────
@@ -204,6 +224,10 @@ async function loadShared(hash: string, back: () => void = showMenu): Promise<vo
   if (token !== loadToken) return;
   if (!found) return overlay.showMessage('맵을 찾을 수 없어요. 오프라인이거나 삭제된 곡일 수 있어요.', back);
   const ctx: SharedCtx = { hash, analysis: found };
+  // 이 기기에 같은 곡이 저장돼 있으면 파일 선택 없이 바로 시작
+  const stored = await loadSong(hash);
+  if (token !== loadToken) return;
+  if (stored) return void onFile(stored, ctx, true);
   const n = found.maps.normal;
   overlay.showSharedPick(
     { title: n.title, detail: `BPM ${found.bpm > 0 ? found.bpm.toFixed(1) : '-'} · 쉬움 ${found.maps.easy.notes.length} / 보통 ${n.notes.length} / 어려움 ${found.maps.hard.notes.length}노트` },

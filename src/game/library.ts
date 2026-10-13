@@ -1,3 +1,4 @@
+import { deleteSong } from '../audio/songStore';
 import { readJSON, removeKey, writeJSON } from '../storage';
 import type { Difficulty, GameMap, Rank, Result } from './types';
 
@@ -70,7 +71,7 @@ export function recordPlay(
   }
 
   list.sort((a, b) => b.lastPlayed - a.lastPlayed);
-  for (const dropped of list.splice(MAX_SONGS)) removeAnalysis(dropped.songHash);
+  for (const dropped of list.splice(MAX_SONGS)) { removeAnalysis(dropped.songHash); void deleteSong(dropped.songHash); }
   writeJSON(LIB_KEY, list);
   return { isNewBest, best: entry.best[difficulty]! };
 }
@@ -78,6 +79,7 @@ export function recordPlay(
 export function removeSong(songHash: string): void {
   writeJSON(LIB_KEY, getLibrary().filter((e) => e.songHash !== songHash));
   removeAnalysis(songHash);
+  void deleteSong(songHash); // 이 기기에 저장해 둔 곡 파일도 함께 삭제
 }
 
 // ─── 분석 결과(맵) 캐시: 같은 파일을 다시 고르면 분석을 건너뛴다 ────────────────────

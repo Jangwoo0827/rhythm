@@ -2,6 +2,7 @@ import {
   OFFSET_LIMIT, SPEED_MAX, SPEED_MIN, approachFor, getSettings, resetSettings, updateSettings,
 } from '../game/settings';
 import { online } from '../firebase/online';
+import { clearSongs, usage } from '../audio/songStore';
 import { DEFAULT_KEYS, assignKey, keyLabel } from '../game/keys';
 import { sanitizeNickname, NICKNAME_MAX } from '../firebase/profile';
 import { button, h } from './dom';
@@ -51,7 +52,7 @@ export function buildSettingsScreen(opts: { onCalibrate: () => void; onBack: () 
     }),
   );
 
-  list.append(keySection(), accountSection());
+  list.append(keySection(), storageSection(), accountSection());
 
   const bar = h('div', 'actions');
   bar.append(
@@ -195,5 +196,32 @@ function keySection(): HTMLElement {
     row, reset, msg,
   );
   render();
+  return box;
+}
+
+/** 곡 저장(이 기기 전용): 켜면 불러온 곡을 브라우저에 저장해 다음에 파일을 다시 고르지 않아도 된다. 서버로는 올라가지 않는다. */
+function storageSection(): HTMLElement {
+  const box = h('div', 'setting');
+  const info = h('div', 'setting-hint', '');
+  const toggle = button('', 'neon secondary small', () => {
+    updateSettings({ saveSongs: !getSettings().saveSongs });
+    paint();
+  });
+  const clear = button('저장된 곡 모두 삭제', 'neon secondary small', async () => {
+    await clearSongs();
+    void refresh();
+  });
+  const paint = () => {
+    toggle.textContent = `곡을 이 기기에 저장: ${getSettings().saveSongs ? 'ON' : 'OFF'}`;
+  };
+  const refresh = async () => {
+    const u = await usage();
+    const mb = (u.bytes / 1024 / 1024).toFixed(1);
+    info.textContent = `불러온 곡 파일을 이 기기 브라우저에만 저장해요 (서버로 올라가지 않아요).\n저장된 곡 ${u.count}개 · ${mb}MB (최대 12곡·300MB, 오래 안 쓴 곡부터 자동 삭제)`;
+    clear.disabled = u.count === 0;
+  };
+  paint();
+  box.append(h('div', 'setting-label', '곡 저장 (이 기기)'), info, toggle, clear);
+  void refresh();
   return box;
 }
