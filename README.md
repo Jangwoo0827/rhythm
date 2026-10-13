@@ -12,6 +12,19 @@ npm run preview      # 빌드 결과 확인
 npm test             # 분석 알고리즘 단위 테스트 (vitest)
 ```
 
+### GitHub Pages 배포 (HTTPS 주소로 폰 테스트)
+`main` 브랜치에 푸시/머지되면 `.github/workflows/deploy.yml` 이 타입체크 → 테스트 → 빌드 → Pages 배포를 수행합니다.
+PR 에서는 배포 없이 검증(타입체크·테스트·빌드)만 돌립니다.
+
+1. 저장소 **Settings → Pages → Build and deployment → Source** 를 **GitHub Actions** 로 설정 (최초 1회)
+2. 변경 사항을 `main` 에 머지 (또는 Actions 탭에서 *Run workflow*)
+3. 배포 주소: **https://jangwoo0827.github.io/rhythm/** (Actions 실행 결과의 `github-pages` 환경에도 표시)
+4. 폰에서 접속 → 홈 화면에 추가(Android 크롬: ⋮ → 홈 화면에 추가 / iOS 사파리: 공유 → 홈 화면에 추가)하면 세로 고정 전체화면 앱처럼 실행
+
+빌드는 `base: './'` 상대 경로라서 저장소 이름이나 도메인이 바뀌어도 그대로 동작합니다.
+Firebase 설정값(STEP 5)은 저장소 *Settings → Secrets and variables → Actions → Variables* 에
+`VITE_FIREBASE_*` 로 등록하면 빌드에 주입됩니다 (`.env.example` 참고).
+
 ### 폰에서 테스트 (같은 와이파이)
 1. PC에서 `npm run dev` 실행 → 터미널의 `Network: http://192.168.x.x:5173/` 확인
 2. 폰 브라우저(크롬/사파리)에서 그 주소로 접속 (PC 방화벽이 5173 포트를 막고 있으면 허용)
