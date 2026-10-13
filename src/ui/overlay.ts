@@ -1,5 +1,7 @@
 import type { BestScore, SongEntry } from '../game/library';
 import { SAMPLE_HASH } from '../game/library';
+import { keyLabel } from '../game/keys';
+import { getSettings } from '../game/settings';
 import type { Difficulty, Result } from '../game/types';
 import type { OnlineStatus } from '../firebase/online';
 import { button, fileInput, h } from './dom';
@@ -69,7 +71,7 @@ export class Overlay {
       button('음악 파일 선택', 'neon', () => { opts.onBeforePick(); input.click(); }),
       button('최근 플레이한 곡', 'neon secondary', opts.onRecent),
     );
-    if (opts.online) bar.append(button('공유 맵 불러오기', 'neon secondary', opts.online.onShared));
+    if (opts.online) bar.append(button('🌐 공유 맵 둘러보기', 'neon secondary', opts.online.onShared));
     bar.append(
       button('테스트 곡으로 플레이', 'neon secondary', opts.onTest),
       button('⚙ 설정', 'neon secondary', opts.onSettings),
@@ -81,7 +83,7 @@ export class Overlay {
       h('div', 'logo', 'RHYTHM'),
       h('div', 'sub', '내 음악으로 플레이하세요'),
       status,
-      h('div', 'hint', '화면 아래 4개 레인을 탭 / 길게 눌러 롱노트\nPC 테스트: D F J K 키'),
+      h('div', 'hint', `화면 아래 4개 레인을 탭 / 길게 눌러 롱노트\nPC: ${getSettings().keys.map(keyLabel).join(' ')} 키 (설정에서 변경)`),
       bar,
       input,
     );

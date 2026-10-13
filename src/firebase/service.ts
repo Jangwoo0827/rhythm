@@ -10,7 +10,7 @@ import {
 } from 'firebase/auth';
 import {
   collection, connectFirestoreEmulator, doc, getDoc, getDocs, getFirestore, initializeFirestore, limit, memoryLocalCache,
-  orderBy, persistentLocalCache, persistentMultipleTabManager, query, serverTimestamp, setDoc, where,
+  orderBy, persistentLocalCache, persistentMultipleTabManager, query, serverTimestamp, setDoc, startAfter, Timestamp, where,
   type Firestore,
 } from 'firebase/firestore';
 import type { CachedAnalysis } from '../game/library';
@@ -19,6 +19,7 @@ import type { Difficulty, GameMap } from '../game/types';
 import type { OnlineConfig } from './config';
 import { DIFFICULTY_IDS, mapId, mapToDoc, sanitizeMapDoc } from './mapCodec';
 import type { OutboxBackend, ScoreItem } from './outbox';
+import { sanitizeSongDoc, songToDoc, type SongInfo } from './songCodec';
 
 export interface LeaderboardRow {
   uid: string;
@@ -176,6 +177,28 @@ export class Service {
       if ((await withTimeout(getDoc(ref), 8000)).exists()) continue;
       await withTimeout(setDoc(ref, { ...mapToDoc(map, uid), createdAt: serverTimestamp() }), 15000);
     }
+  }
+
+  // ─── 공유 맵 목록 (songs/{songHash}) ────────────────────────────────────
+  /** 공개 목록에 곡을 올린다 (이미 있으면 건너뜀). 맵 3개가 먼저 올라가 있어야 한다. */
+  async publishSong(uid: string, info: Omit<SongInfo, 'createdAt'>): Promise<void> {
+    const ref = doc(this.db, 'songs', info.songHash);
+    if ((await withTimeout(getDoc(ref), 8000)).exists()) return;
+    await withTimeout(setDoc(ref, { ...songToDoc(info, uid), createdAt: serverTimestamp() }), 15000);
+  }
+
+  /** 최신순 공유 곡 목록. next 가 있으면 다음 페이지의 커서(마지막 항목의 올린 시각). */
+  async listSongs(pageSize = 20, after?: number): Promise<{ rows: SongInfo[]; next: number | null }> {
+    const parts = [orderBy('createdAt', 'desc'), ...(after !== undefined ? [startAfter(Timestamp.fromMillis(after))] : []), limit(pageSize)];
+    const snap = await withTimeout(getDocs(query(collection(this.db, 'songs'), ...parts)), 10000);
+    const rows: SongInfo[] = [];
+    for (const d of snap.docs) {
+      const row = sanitizeSongDoc(d.id, d.data());
+      if (row) rows.push(row);
+    }
+    const last = snap.docs.at(-1)?.data().createdAt;
+    const next = snap.docs.length >= pageSize && last && typeof last.toMillis === 'function' ? (last.toMillis() as number) : null;
+    return { rows, next };
   }
 
   // ─── 점수 (scores/{id}) ──────────────────────────────────────────────────

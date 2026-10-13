@@ -15,7 +15,7 @@
 
 ## 3. Firestore
 1. **빌드 → Firestore Database → 데이터베이스 만들기** → **프로덕션 모드** (보안 규칙은 아래에서 배포) → 위치 선택(가까운 곳, 예: `asia-northeast3` 서울)
-2. 보안 규칙과 인덱스 배포 (저장소 루트에서):
+2. 보안 규칙과 인덱스 배포 (저장소 루트에서). **규칙이 바뀌면(예: `songs` 추가) 다시 배포/게시해야 합니다** — 콘솔 *Firestore → 규칙* 탭에 `firestore.rules` 전체를 붙여넣고 게시해도 됩니다:
    ```bash
    npx firebase-tools login
    npx firebase-tools deploy --only firestore:rules,firestore:indexes --project <프로젝트 ID>
@@ -39,7 +39,7 @@ VITE_FIREBASE_MESSAGING_SENDER_ID=...   # 선택
 앱을 열면 메뉴에 `☁ Player1234 (익명)` 이 표시되면 성공입니다.
 - 설정 → **온라인 계정**: 닉네임 변경, **Google 계정 연결**(익명 계정의 기록이 그대로 이어짐), 로그아웃
 - 곡 업로드 → 준비 화면의 **🏆 리더보드 / 🔗 맵 공유**
-- 메뉴 → **공유 맵 불러오기** (링크 `…/#/song/<곡지문>` 또는 곡 지문/맵 ID)
+- 메뉴 → **🌐 공유 맵 둘러보기**: 다른 사람이 분석해서 올린 곡이 최신순으로 보이고(ID/링크 불필요), 눌러서 같은 곡 파일을 고르면 시작. 링크·ID로 직접 불러오기도 가능
 
 ## 로컬 에뮬레이터로 개발·테스트
 실제 Firebase 프로젝트 없이도 전체 흐름을 시험할 수 있습니다 (Java 필요).
@@ -54,8 +54,10 @@ npm run test:rules     # 보안 규칙 테스트 (에뮬레이터를 자동으�
 |---|---|---|---|
 | `users` | `{uid}` | `nickname`, `settings{speed,musicVolume,sfxVolume,difficulty}`, `updatedAt` | 본인만 읽기/쓰기 |
 | `maps` | `{곡지문}_{난이도}` | `songHash`, `title`, `bpm`, `offset?`, `difficulty`, `notes[{t,lane,dur}]`, `uid`(만든 사람), `createdAt`, `v` | 로그인 사용자 읽기, **생성만**(수정·삭제 불가) |
+| `songs` | `{곡지문}` | `songHash`, `title`, `mapper`(닉네임), `bpm`, `duration`, `counts{easy,normal,hard}`, `uid`, `createdAt` | 로그인 사용자 읽기, **생성만**. 노트 수는 실제 맵과 일치해야 함 |
 | `scores` | 클라이언트가 만든 ID | `uid`, `mapId`, `nickname`, `score`, `accuracy`, `combo`, `time`(서버), `playedAt` | 로그인 사용자 읽기, **생성만** |
 
+- **공유 목록(`songs`)**: 곡을 분석하면 제목(파일 이름)·닉네임·길이·BPM·노트 수가 자동으로 올라가고, 목록은 이 가벼운 문서만 읽습니다(맵 본문은 곡을 누를 때만 받음). 설정의 **내 곡을 공유 목록에 공개**를 끄면 목록에는 올리지 않습니다(리더보드용 맵 자체는 저장됨). 정렬 기준이 `createdAt` 하나라 새 복합 인덱스는 필요 없습니다.
 - **곡 지문(songHash)**: 디코드된 오디오의 에너지 윤곽에서 계산한 64비트 해시(16자리 16진수). 같은 파일이면 항상 같고, 다른 인코딩(mp3 ↔ wav)은 다른 곡으로 취급됩니다.
 - **맵은 곡·난이도당 하나**이며 처음 올린 것이 기준입니다. 같은 곡을 다시 올리면 저장된 맵을 받아 쓰고, 없을 때만 분석 후 저장합니다.
 - 점수는 **개인 최고 기록을 갱신했을 때만** 업로드합니다. 오프라인이거나 로그인 전이면 기기에 보관했다가 연결되면 맵 → 점수 순서로 올립니다.

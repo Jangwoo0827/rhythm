@@ -4,6 +4,7 @@ import { friendlyAuthError } from './errors';
 import { MAX_NOTES, mapId, mapToDoc, sanitizeMapDoc } from './mapCodec';
 import { MAX_ATTEMPTS, Outbox, type OutboxBackend, type ScoreItem } from './outbox';
 import { sanitizeNickname } from './profile';
+import { sanitizeSongDoc, songToDoc } from './songCodec';
 import { buildShareLink, parseShareHash, parseShareInput } from './share';
 import type { GameMap } from '../game/types';
 
@@ -259,4 +260,32 @@ describe('로그인 오류 안내', () => {
     expect(friendlyAuthError(null)).toContain('로그인하지 못했어요');
     expect(friendlyAuthError(new Error('x'))).toContain('로그인하지 못했어요');
   });
+});
+
+describe('공유 목록 곡 문서', () => {
+  const info = { songHash: HASH, title: 'Song', mapper: 'Alice', bpm: 128, duration: 200, counts: { easy: 60, normal: 150, hard: 220 } };
+  const doc = (over: Record<string, unknown> = {}) => ({ ...songToDoc(info, 'u1'), createdAt: { toMillis: () => 1700000000000 }, ...over });
+
+  it('왕복 변환: Timestamp 형태의 createdAt 도 읽는다', () => {
+    const back = sanitizeSongDoc(HASH, doc())!;
+    expect(back).toMatchObject({ ...info, createdAt: 1700000000000 });
+    expect(sanitizeSongDoc(HASH, doc({ createdAt: 5 }))!.createdAt).toBe(5);
+  });
+  it('긴 제목/닉네임은 규칙 한도로 자른다', () => {
+    const d = songToDoc({ ...info, title: 'x'.repeat(300), mapper: 'y'.repeat(50) }, 'u');
+    expect(d.title).toHaveLength(100);
+    expect(d.mapper).toHaveLength(16);
+  });
+  const bad: Array<[string, Record<string, unknown>]> = [
+    ['ID 불일치', { songHash: 'fedcba9876543210' }],
+    ['제목 없음', { title: '' }],
+    ['닉네임 길이 초과', { mapper: 'z'.repeat(17) }],
+    ['BPM 범위 밖', { bpm: 1000 }],
+    ['길이 0', { duration: 0 }],
+    ['노트 수 음수', { counts: { easy: -1, normal: 1, hard: 1 } }],
+    ['노트 수 누락', { counts: { easy: 1, normal: 1 } }],
+    ['시각 형식 오류', { createdAt: 'yesterday' }],
+  ];
+  for (const [name, over] of bad) it(`목록에서 제외: ${name}`, () => expect(sanitizeSongDoc(HASH, doc(over)), name).toBeNull());
+  it('객체가 아니면 제외', () => { expect(sanitizeSongDoc(HASH, null)).toBeNull(); expect(sanitizeSongDoc(HASH, 'x')).toBeNull(); });
 });

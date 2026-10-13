@@ -20,6 +20,7 @@ import { Calibration } from './ui/calibration';
 import { blockGestures } from './ui/gestures';
 import { online } from './firebase/online';
 import { buildShareLink, parseShareHash, parseShareInput } from './firebase/share';
+import { buildBrowseScreen } from './ui/browseScreen';
 import { buildLeaderboardScreen } from './ui/leaderboardScreen';
 import { Overlay } from './ui/overlay';
 import { buildSettingsScreen } from './ui/settingsScreen';
@@ -69,7 +70,7 @@ function showMenu(): void {
     onTest: () => void onTest(),
     onSettings: openSettings,
     ...(online.configured
-      ? { online: { onShared: () => openSharedInput(), status: () => online.status(), subscribe: (fn: () => void) => online.subscribe(fn) } }
+      ? { online: { onShared: () => openBrowse(), status: () => online.status(), subscribe: (fn: () => void) => online.subscribe(fn) } }
       : {}),
   });
 }
@@ -141,7 +142,7 @@ async function onFile(file: File, shared?: SharedCtx): Promise<void> {
     // 1) 로컬 캐시 → 2) 온라인에 저장된 맵 → 3) 새로 분석 (분석하면 온라인에 저장)
     let analysis: CachedAnalysis | null = shared?.analysis ?? loadAnalysis(hash);
     if (analysis) {
-      online.publishMaps(hash); // 아직 온라인에 없으면 올린다 (이미 있으면 건너뜀)
+      online.publishMaps(hash, { title: song.title, duration: song.buffer.duration }); // 아직 온라인에 없으면 올린다 (이미 있으면 건너뜀)
     } else {
       if (online.configured) {
         overlay.showLoading('온라인에서 맵을 확인하는 중…');
@@ -157,7 +158,7 @@ async function onFile(file: File, shared?: SharedCtx): Promise<void> {
         job = null;
         analysis = { bpm: result.bpm, offset: result.offset, maps: result.maps };
         saveAnalysis(hash, song.title, analysis);
-        online.publishMaps(hash);
+        online.publishMaps(hash, { title: song.title, duration: song.buffer.duration });
       }
     }
     analyzed = { buffer: song.buffer, title: song.title, hash, analysis };
@@ -170,31 +171,43 @@ async function onFile(file: File, shared?: SharedCtx): Promise<void> {
 }
 
 // ─── 온라인: 공유 맵 / 리더보드 ──────────────────────────────────────────────
+/** 공유 맵 둘러보기: 다른 사람이 올린 곡을 최신순으로 보고 눌러서 불러온다 (ID/링크 불필요) */
+function openBrowse(): void {
+  leaveScreen();
+  overlay.mount(buildBrowseScreen({
+    load: (after) => online.listSongs(after),
+    onPick: (song) => void loadShared(song.songHash, openBrowse),
+    onManual: () => openSharedInput(),
+    onBack: showMenu,
+  }));
+}
+
 function openSharedInput(error = ''): void {
   leaveScreen();
   const screen = overlay.showSharedImport({
     onSubmit: (text) => {
       const target = parseShareInput(text);
       if (!target) return screen.setError('링크나 맵 ID 형식이 올바르지 않아요.');
-      void loadShared(target.songHash);
+      void loadShared(target.songHash, () => openSharedInput());
     },
-    onBack: showMenu,
+    onBack: openBrowse,
   });
   if (error) screen.setError(error);
 }
 
-async function loadShared(hash: string): Promise<void> {
+/** back: 맵을 못 찾았거나 뒤로 갈 때 돌아갈 화면 */
+async function loadShared(hash: string, back: () => void = showMenu): Promise<void> {
   leaveScreen();
   const token = loadToken;
   overlay.showLoading('공유된 맵을 불러오는 중…');
   const found = loadAnalysis(hash) ?? (await online.fetchMaps(hash));
   if (token !== loadToken) return;
-  if (!found) return openSharedInput('맵을 찾을 수 없어요. 오프라인이거나 아직 공유되지 않은 곡일 수 있어요.');
+  if (!found) return overlay.showMessage('맵을 찾을 수 없어요. 오프라인이거나 삭제된 곡일 수 있어요.', back);
   const ctx: SharedCtx = { hash, analysis: found };
   const n = found.maps.normal;
   overlay.showSharedPick(
     { title: n.title, detail: `BPM ${found.bpm > 0 ? found.bpm.toFixed(1) : '-'} · 쉬움 ${found.maps.easy.notes.length} / 보통 ${n.notes.length} / 어려움 ${found.maps.hard.notes.length}노트` },
-    { onBeforePick: () => void engine.unlock(), onFile: (f) => void onFile(f, ctx), onBack: openSharedInput },
+    { onBeforePick: () => void engine.unlock(), onFile: (f) => void onFile(f, ctx), onBack: back },
   );
 }
 
@@ -211,7 +224,7 @@ function openLeaderboard(hash: string, title: string, difficulty: Difficulty, ba
 
 async function shareSong(a: Analyzed): Promise<void> {
   const url = buildShareLink(location.href, a.hash);
-  online.publishMaps(a.hash);
+  online.publishMaps(a.hash, { title: a.title, duration: a.buffer.duration });
   try {
     if (navigator.share) { await navigator.share({ title: a.title, text: `Rhythm 맵: ${a.title}`, url }); return; }
     await navigator.clipboard.writeText(url);
